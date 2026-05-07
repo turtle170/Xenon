@@ -38,16 +38,25 @@
             pointer-events: none;
         }
 
-        #logoContainer {
-            width: 300px;
-            height: 300px;
-            margin: 0 auto 40px;
-            position: relative;
+        .logo-container {
+            width: 250px;
+            height: 250px;
+            margin: 0 auto 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            filter: drop-shadow(0 0 30px rgba(255, 255, 255, 0.1));
+            transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
-        canvas#logoCanvas {
+        .logo-container:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+
+        .logo-img {
             width: 100%;
             height: 100%;
+            object-fit: contain;
         }
 
         .container {
@@ -156,8 +165,8 @@
 
     <div class="container">
         <header>
-            <div id="logoContainer">
-                <canvas id="logoCanvas"></canvas>
+            <div class="logo-container">
+                <img src="XenonIcon.png" alt="Xenon Dragon Logo" class="logo-img">
             </div>
             <h1>XENON</h1>
             <p class="tagline">The Autonomous, Self-Editing Framework</p>
@@ -201,50 +210,6 @@
     </div>
 
     <script>
-        // --- Logo Canvas (Rainbow Dragon Particles) ---
-        const logoCanvas = document.getElementById('logoCanvas');
-        const lctx = logoCanvas.getContext('2d');
-        logoCanvas.width = 300;
-        logoCanvas.height = 300;
-
-        let logoParticles = [];
-        const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff', '#4b0082', '#9400d3'];
-
-        class LogoParticle {
-            constructor() {
-                this.x = Math.random() * 300;
-                this.y = Math.random() * 300;
-                this.size = Math.random() * 2 + 1;
-                this.color = colors[Math.floor(Math.random() * colors.length)];
-                this.angle = Math.random() * Math.PI * 2;
-                this.velocity = Math.random() * 0.5 + 0.2;
-            }
-            update() {
-                // Circular motion to form a "head" shape roughly
-                this.angle += 0.02;
-                let centerX = 150 + Math.cos(this.angle) * 80;
-                let centerY = 150 + Math.sin(this.angle * 0.5) * 50;
-                
-                this.x += (centerX - this.x) * 0.05;
-                this.y += (centerY - this.y) * 0.05;
-            }
-            draw() {
-                lctx.fillStyle = this.color;
-                lctx.beginPath();
-                lctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                lctx.fill();
-            }
-        }
-
-        for(let i=0; i<400; i++) logoParticles.push(new LogoParticle());
-
-        function animateLogo() {
-            lctx.clearRect(0,0,300,300);
-            logoParticles.forEach(p => { p.update(); p.draw(); });
-            requestAnimationFrame(animateLogo);
-        }
-        animateLogo();
-
         // --- Main Background Particles (with repulsion) ---
         const canvas = document.getElementById('particleCanvas');
         const ctx = canvas.getContext('2d');
