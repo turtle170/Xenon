@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package xenon;
+
+message ContextChunk {
+    bytes data = 1; // Packed 4-bit data
+    uint32 length = 2; // Original length
+}
+
+message FullContext {
+    repeated ContextChunk chunks = 1;
+}
