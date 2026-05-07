@@ -3,9 +3,42 @@
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "--- Xenon Installation Starting ---" -ForegroundColor Cyan
+function Show-Header {
+    Clear-Host
+    Write-Host @"
+ ██╗  ██╗███████╗███╗   ██╗ ██████╗ ███╗   ██╗
+ ╚██╗██╔╝██╔════╝████╗  ██║██╔═══██╗████╗  ██║
+  ╚███╔╝ █████╗  ██╔██╗ ██║██║   ██║██╔██╗ ██║
+  ██╔██╗ ██╔══╝  ██║╚██╗██║██║   ██║██║╚██╗██║
+ ██╔╝ ██╗███████╗██║ ╚████║╚██████╔╝██║ ╚████║
+ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝
+    Autonomous Self-Editing Agent Framework
+"@ -ForegroundColor Cyan
+    Write-Host "---------------------------------------------" -ForegroundColor Gray
+}
 
-# Check for Rust
+function Show-Step {
+    param([string]$Message)
+    Write-Host "`n[>] $Message" -ForegroundColor Yellow
+}
+
+function Show-Success {
+    param([string]$Message)
+    Write-Host "[v] $Message" -ForegroundColor Green
+}
+
+Show-Header
+
+# 1. Check for Git
+Show-Step "Checking for Git..."
+if (!(Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "Error: Git is required. Install it from https://git-scm.com/" -ForegroundColor Red
+    return
+}
+Show-Success "Git found."
+
+# 2. Check for Rust
+Show-Step "Checking for Rust..."
 if (!(Get-Command cargo -ErrorAction SilentlyContinue)) {
     Write-Host "Rust not found. Installing Rustup..." -ForegroundColor Yellow
     irm https://sh.rustup.rs -OutFile rustup-init.exe
@@ -13,28 +46,42 @@ if (!(Get-Command cargo -ErrorAction SilentlyContinue)) {
     Remove-Item ./rustup-init.exe
     $env:Path += ";$HOME\.cargo\bin"
 }
+Show-Success "Rust ready."
 
-# Check for Node.js
+# 3. Check for Node.js
+Show-Step "Checking for Node.js..."
 if (!(Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Host "Node.js not found. Please install Node.js from https://nodejs.org/" -ForegroundColor Red
+    Write-Host "Error: Node.js is required. Install it from https://nodejs.org/" -ForegroundColor Red
     return
 }
+Show-Success "Node.js ready."
 
-Write-Host "Cloning Xenon repository..." -ForegroundColor Cyan
+# 4. Clone Repository
+Show-Step "Cloning Xenon repository from turtle170/Xenon..."
+$RepoUrl = "https://github.com/turtle170/Xenon.git"
 if (Test-Path "Xenon") {
-    Write-Host "Xenon directory already exists. Updating..." -ForegroundColor Yellow
-    cd Xenon
+    Write-Host "Directory 'Xenon' exists. Updating..." -ForegroundColor Gray
+    Set-Location Xenon
     git pull
 } else {
-    git clone https://github.com/YourUsername/Xenon.git
-    cd Xenon
+    git clone $RepoUrl
+    Set-Location Xenon
 }
+Show-Success "Repository cloned."
 
-Write-Host "Installing dependencies..." -ForegroundColor Cyan
-npm install
+# 5. Install Dependencies
+Show-Step "Installing NPM dependencies..."
+npm install --silent
+Show-Success "NPM dependencies installed."
 
-Write-Host "Building Xenon..." -ForegroundColor Cyan
+# 6. Build
+Show-Step "Building Xenon binary (this may take a few minutes)..."
 npm run tauri build
+Show-Success "Build complete."
 
-Write-Host "--- Xenon Installed! ---" -ForegroundColor Green
-Write-Host "Run 'npm run tauri dev' to start."
+Show-Header
+Show-Success "XENON INSTALLATION SUCCESSFUL"
+Write-Host "`nTo start Xenon:" -ForegroundColor White
+Write-Host "  cd Xenon" -ForegroundColor Gray
+Write-Host "  npm run tauri dev" -ForegroundColor Gray
+Write-Host "`nEnjoy your autonomous agent.`n" -ForegroundColor Cyan
