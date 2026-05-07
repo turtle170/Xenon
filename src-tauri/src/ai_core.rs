@@ -1,47 +1,71 @@
 use crate::python_env;
 use crate::context_translator;
 use serde::{Deserialize, Serialize};
+use reqwest::Client;
+use serde_json::json;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentConfig {
     pub provider: String,
     pub api_key: Option<String>,
     pub model: String,
-    pub local_server: Option<String>, // e.g. "http://localhost:8080" for llama-server
+    pub local_server: Option<String>,
 }
 
 pub struct XenonAgent {
     pub config: AgentConfig,
-    pub system_prompt: String,
+    pub client: Client,
 }
 
 impl XenonAgent {
     pub fn new(config: AgentConfig) -> Self {
-        let system_prompt = "You are Xenon, an autonomous self-editing agent. \
-            Be direct. No slack like 'Sure! I can help'. No fluff. \
-            Output only the required information. \
-            Your goal is to fulfill tasks by creating or calling functions. \
-            You have access to embedded Python (PyO3), Playwright (via Python), and PowerShell.".to_string();
-        
         Self {
             config,
-            system_prompt,
+            client: Client::new(),
         }
     }
 
     pub async fn process(&self, prompt: &str) -> anyhow::Result<String> {
-        // Here we would call the LLM (OpenAI, Anthropic, or Local llama-server)
-        // For now, it's a placeholder
-        Ok(format!("Processed prompt: {}", prompt))
-    }
+        let system_prompt = "You are Xenon. Direct. Autonomous. No slack. \
+            If you need a tool you don't have, output CODE: <python code> to create it. \
+            Always define an 'execute(args)' function in your code. \
+            Otherwise, answer directly.";
 
-    pub fn create_skill(&self, name: &str, code: &str) -> anyhow::Result<()> {
-        python_env::save_ai_function(name, code)?;
-        Ok(())
-    }
+        let url = match self.config.provider.as_str() {
+            "OpenAI" => "https://api.openai.com/v1/chat/completions",
+            "DeepSeek" => "https://api.deepseek.com/chat/completions",
+            "Llama (Local)" => &self.config.local_server.clone().unwrap_or("http://localhost:8080/v1/chat/completions".to_string()),
+            _ => "https://api.openai.com/v1/chat/completions", // Default fallback
+        };
 
-    pub fn use_skill(&self, name: &str, args: &str) -> anyhow::Result<String> {
-        let result = python_env::call_ai_function(name, args).map_err(|e| anyhow::anyhow!(e))?;
-        Ok(result)
+        let api_key = self.config.api_key.clone().unwrap_or_default();
+
+        let response = self.client.post(url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .json(&json!({
+                "model": self.config.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            }))
+            .send()
+            .await?;
+
+        let res_json: serde_json::Value = response.json().await?;
+        let content = res_json["choices"][0]["message"]["content"].as_str().unwrap_or("No response").to_string();
+
+        if content.contains("CODE:") {
+            // Basic parsing of code
+            let code = content.split("CODE:").nth(1).unwrap_or("").trim();
+            let skill_name = format!("skill_{}", uuid::Uuid::new_v4().simple());
+            python_env::save_ai_function(&skill_name, code)?;
+            
+            // Execute the newly created skill
+            let result = python_env::call_ai_function(&skill_name, prompt).map_err(|e| anyhow::anyhow!(e))?;
+            return Ok(format!("[Skill Created: {}]\n{}", skill_name, result));
+        }
+
+        Ok(content)
     }
 }

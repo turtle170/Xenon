@@ -1,14 +1,19 @@
-pub mod agent;
 pub mod python_env;
 pub mod context_translator;
 pub mod ai_core;
 
 use tauri::{AppHandle, Manager, Runtime};
+use crate::ai_core::AgentConfig;
 
 #[tauri::command]
-async fn ask_xenon(prompt: String) -> Result<String, String> {
-    // Placeholder for agent logic
-    Ok(format!("Xenon received: {}", prompt))
+async fn ask_xenon(prompt: String, config: AgentConfig) -> Result<String, String> {
+    let agent = ai_core::XenonAgent::new(config);
+    agent.process(&prompt).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn init_xenon_env() -> Result<(), String> {
+    python_env::init_python().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,7 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![ask_xenon])
+        .invoke_handler(tauri::generate_handler![ask_xenon, init_xenon_env])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
