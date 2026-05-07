@@ -30,12 +30,24 @@
             line-height: 1.6;
         }
 
-        canvas {
+        canvas#particleCanvas {
             position: fixed;
             top: 0;
             left: 0;
             z-index: -1;
             pointer-events: none;
+        }
+
+        #logoContainer {
+            width: 300px;
+            height: 300px;
+            margin: 0 auto 40px;
+            position: relative;
+        }
+
+        canvas#logoCanvas {
+            width: 100%;
+            height: 100%;
         }
 
         .container {
@@ -45,7 +57,6 @@
             position: relative;
         }
 
-        /* Glassmorphism Styles */
         .glass-card {
             background: var(--glass);
             backdrop-filter: blur(12px);
@@ -55,19 +66,24 @@
             padding: 40px;
             margin-bottom: 40px;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+            transition: transform 0.3s ease;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-5px);
         }
 
         header {
             text-align: center;
-            margin-bottom: 100px;
+            margin-bottom: 80px;
         }
 
         h1 {
             font-size: 5rem;
             font-weight: 800;
             letter-spacing: -0.05em;
-            margin-bottom: 20px;
-            background: linear-gradient(to bottom, #fff 0%, #888 100%);
+            margin-bottom: 10px;
+            background: linear-gradient(to right, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -96,21 +112,16 @@
             max-width: 100%;
             overflow-x: auto;
             cursor: pointer;
-            transition: border-color 0.3s;
+            transition: border-color 0.3s, box-shadow 0.3s;
         }
 
         .install-box:hover {
             border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 112, 243, 0.3);
         }
 
         .install-box code {
             color: #00ffaa;
-        }
-
-        .copy-hint {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 10px;
         }
 
         .grid {
@@ -126,11 +137,6 @@
             color: #fff;
         }
 
-        .feature-card p {
-            color: #888;
-            font-size: 1rem;
-        }
-
         .section-title {
             font-size: 2.5rem;
             margin-bottom: 40px;
@@ -143,11 +149,6 @@
             color: #444;
             font-size: 0.9rem;
         }
-
-        @media (max-width: 768px) {
-            h1 { font-size: 3rem; }
-            .tagline { font-size: 1.1rem; }
-        }
     </style>
 </head>
 <body>
@@ -155,163 +156,154 @@
 
     <div class="container">
         <header>
+            <div id="logoContainer">
+                <canvas id="logoCanvas"></canvas>
+            </div>
             <h1>XENON</h1>
-            <p class="tagline">The Self-Editing Autonomous Framework</p>
+            <p class="tagline">The Autonomous, Self-Editing Framework</p>
         </header>
 
         <section class="install-section">
             <div class="glass-card">
-                <p style="margin-bottom: 20px; font-weight: 600;">Run the automated installer</p>
+                <p style="margin-bottom: 20px; font-weight: 600; font-size: 1.2rem;">Ready to automate?</p>
                 <div class="install-box" onclick="copyInstall()">
                     <code>irm https://xenonai.pages.dev/install.ps1 | iex</code>
                 </div>
-                <p class="copy-hint">Click to copy to clipboard</p>
+                <p style="margin-top: 15px; color: #666; font-size: 0.8rem;">Click the box to copy the command</p>
             </div>
         </section>
 
         <section>
-            <h2 class="section-title">Core Intelligence</h2>
+            <h2 class="section-title">Why Xenon?</h2>
             <div class="grid">
                 <div class="glass-card feature-card">
-                    <h3>Self-Editing Core</h3>
-                    <p>Xenon doesn't just talk. It acts. Using PyO3 and an autonomous logic loop, it creates, tests, and saves global functions to its own framework in real-time.</p>
+                    <h3>Self-Mutation</h3>
+                    <p>Unlike static agents, Xenon writes its own Python modules using PyO3, expanding its capabilities globally as it runs.</p>
                 </div>
                 <div class="glass-card feature-card">
-                    <h3>4-bit Context</h3>
-                    <p>Optimized for performance. Context is stored in high-density 4-bit Protobuf structures and translated back to 16-bit only when required by the inference engine.</p>
+                    <h3>Advanced Browser Detection</h3>
+                    <p>Automatically identifies all Chromium-based browsers (Edge, Chrome, Brave, Opera, Vivaldi) for seamless data import.</p>
                 </div>
                 <div class="glass-card feature-card">
-                    <h3>Tauri 2.0 Architecture</h3>
-                    <p>Native performance with a minimalist footprint. Xenon leverages Rust for high-speed backend tasks while providing a beautiful, hardware-accelerated UI.</p>
+                    <h3>Context Compression</h3>
+                    <p>Our 4-bit Protobuf translator ensures massive context windows stay efficient and lightning fast.</p>
                 </div>
                 <div class="glass-card feature-card">
-                    <h3>Multi-Provider</h3>
-                    <p>Full support for OpenAI, Anthropic, Gemini, DeepSeek, and local GGUF models via llama-server integration. Your agent, your choice of brain.</p>
+                    <h3>Multi-Engine Support</h3>
+                    <p>Native integration for OpenAI, Anthropic, Gemini, DeepSeek, and local GGUF inference via llama-server.</p>
                 </div>
             </div>
         </section>
 
-        <section style="margin-top: 100px;">
-            <div class="glass-card">
-                <h3 style="margin-bottom: 20px;">Built for the Future</h3>
-                <p style="color: #aaa; margin-bottom: 20px;">Xenon includes native integrations for system-level operations. From headless browser control via Playwright to direct PowerShell execution, Xenon has the keys to your workspace.</p>
-                <ul style="color: #888; margin-left: 20px; display: flex; flex-direction: column; gap: 10px;">
-                    <li>Embedded Python (3.13 & 3.10) with automated pip management.</li>
-                    <li>Browser data import (Chrome, Edge, Firefox) for seamless context migration.</li>
-                    <li>Desktop shortcut and TUI-based installation.</li>
-                </ul>
-            </div>
-        </section>
-
-        <footer>
-            <p>&copy; 2026 Xenon AI Framework. Open Source & Autonomous.</p>
+        <footer style="margin-top: 100px;">
+            <p>&copy; 2026 Xenon AI | Built with Rust & Tauri</p>
         </footer>
     </div>
 
     <script>
-        // Particle System
+        // --- Logo Canvas (Rainbow Dragon Particles) ---
+        const logoCanvas = document.getElementById('logoCanvas');
+        const lctx = logoCanvas.getContext('2d');
+        logoCanvas.width = 300;
+        logoCanvas.height = 300;
+
+        let logoParticles = [];
+        const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff', '#4b0082', '#9400d3'];
+
+        class LogoParticle {
+            constructor() {
+                this.x = Math.random() * 300;
+                this.y = Math.random() * 300;
+                this.size = Math.random() * 2 + 1;
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.angle = Math.random() * Math.PI * 2;
+                this.velocity = Math.random() * 0.5 + 0.2;
+            }
+            update() {
+                // Circular motion to form a "head" shape roughly
+                this.angle += 0.02;
+                let centerX = 150 + Math.cos(this.angle) * 80;
+                let centerY = 150 + Math.sin(this.angle * 0.5) * 50;
+                
+                this.x += (centerX - this.x) * 0.05;
+                this.y += (centerY - this.y) * 0.05;
+            }
+            draw() {
+                lctx.fillStyle = this.color;
+                lctx.beginPath();
+                lctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                lctx.fill();
+            }
+        }
+
+        for(let i=0; i<400; i++) logoParticles.push(new LogoParticle());
+
+        function animateLogo() {
+            lctx.clearRect(0,0,300,300);
+            logoParticles.forEach(p => { p.update(); p.draw(); });
+            requestAnimationFrame(animateLogo);
+        }
+        animateLogo();
+
+        // --- Main Background Particles (with repulsion) ---
         const canvas = document.getElementById('particleCanvas');
         const ctx = canvas.getContext('2d');
         let particles = [];
         const mouse = { x: null, y: null, radius: 150 };
 
-        window.addEventListener('mousemove', (e) => {
-            mouse.x = e.x;
-            mouse.y = e.y;
-        });
-
-        window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            init();
-        });
+        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
+        window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; init(); });
 
         class Particle {
             constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.baseX = x;
-                this.baseY = y;
+                this.x = x; this.y = y; this.baseX = x; this.baseY = y;
                 this.size = Math.random() * 2 + 1;
                 this.density = (Math.random() * 30) + 1;
             }
-
             draw() {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.closePath();
-                ctx.fill();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
             }
-
             update() {
                 let dx = mouse.x - this.x;
                 let dy = mouse.y - this.y;
                 let distance = Math.sqrt(dx * dx + dy * dy);
-                let forceDirectionX = dx / distance;
-                let forceDirectionY = dy / distance;
-                let maxDistance = mouse.radius;
-                let force = (maxDistance - distance) / maxDistance;
-                let directionX = forceDirectionX * force * this.density;
-                let directionY = forceDirectionY * force * this.density;
-
                 if (distance < mouse.radius) {
-                    this.x -= directionX;
-                    this.y -= directionY;
+                    let force = (mouse.radius - distance) / mouse.radius;
+                    this.x -= (dx / distance) * force * this.density;
+                    this.y -= (dy / distance) * force * this.density;
                 } else {
-                    if (this.x !== this.baseX) {
-                        let dx = this.x - this.baseX;
-                        this.x -= dx / 10;
-                    }
-                    if (this.y !== this.baseY) {
-                        let dy = this.y - this.baseY;
-                        this.y -= dy / 10;
-                    }
+                    this.x -= (this.x - this.baseX) * 0.05;
+                    this.y -= (this.y - this.baseY) * 0.05;
                 }
-
-                // Repulsion between particles (simplified)
-                for (let i = 0; i < particles.length; i++) {
-                    if (this === particles[i]) continue;
+                // Inter-particle repulsion
+                for(let i=0; i<particles.length; i++) {
+                    if(this === particles[i]) continue;
                     let pdx = particles[i].x - this.x;
                     let pdy = particles[i].y - this.y;
-                    let pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-                    if (pdist < 20) {
-                        this.x -= pdx / 50;
-                        this.y -= pdy / 50;
+                    let pdist = Math.sqrt(pdx*pdx + pdy*pdy);
+                    if(pdist < 15) {
+                        this.x -= pdx/100; this.y -= pdy/100;
                     }
                 }
             }
         }
 
         function init() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
             particles = [];
-            let numberOfParticles = (canvas.height * canvas.width) / 9000;
-            for (let i = 0; i < numberOfParticles; i++) {
-                let x = Math.random() * canvas.width;
-                let y = Math.random() * canvas.height;
-                particles.push(new Particle(x, y));
-            }
+            let count = (canvas.width * canvas.height) / 10000;
+            for(let i=0; i<count; i++) particles.push(new Particle(Math.random()*canvas.width, Math.random()*canvas.height));
         }
-
         function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < particles.length; i++) {
-                particles[i].draw();
-                particles[i].update();
-            }
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
             requestAnimationFrame(animate);
         }
-
-        init();
-        animate();
+        init(); animate();
 
         function copyInstall() {
-            const text = "irm https://xenonai.pages.dev/install.ps1 | iex";
-            navigator.clipboard.writeText(text).then(() => {
-                alert("Copied to clipboard!");
-            });
+            navigator.clipboard.writeText("irm https://xenonai.pages.dev/install.ps1 | iex").then(() => alert("Command copied!"));
         }
     </script>
 </body>
