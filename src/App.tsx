@@ -18,9 +18,7 @@ const PROVIDERS = [
   "OpenAI",
   "Anthropic",
   "Gemini",
-  "Mistral",
   "DeepSeek",
-  "Grok",
   "Llama (Local)"
 ];
 
@@ -35,23 +33,32 @@ function App() {
     api_key: ""
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    invoke("init_xenon_env").catch(console.error);
+    invoke("init_xenon_env").then((loadedConfig: any) => {
+      if (loadedConfig) {
+        setConfig(loadedConfig);
+        setMessages([{ role: "xenon", content: `System ready. Connected via ${loadedConfig.provider}.` }]);
+      }
+    }).catch(console.error);
   }, []);
 
   async function handleSend() {
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
     const userMsg: Message = { role: "user", content: input };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
+    setIsLoading(true);
 
     try {
       const response: string = await invoke("ask_xenon", { prompt: input, config });
       setMessages(prev => [...prev, { role: "xenon", content: response }]);
     } catch (error) {
       setMessages(prev => [...prev, { role: "xenon", content: "Error: " + error }]);
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -69,17 +76,8 @@ function App() {
             <label>Model</label>
             <input value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })} />
             
-            {config.provider === "Llama (Local)" ? (
-              <>
-                <label>Server URL</label>
-                <input value={config.local_server} onChange={(e) => setConfig({ ...config, local_server: e.target.value })} placeholder="http://localhost:8080" />
-              </>
-            ) : (
-              <>
-                <label>API Key</label>
-                <input type="password" value={config.api_key} onChange={(e) => setConfig({ ...config, api_key: e.target.value })} />
-              </>
-            )}
+            <label>API Key</label>
+            <input type="password" value={config.api_key} onChange={(e) => setConfig({ ...config, api_key: e.target.value })} />
           </div>
         )}
       </div>
@@ -92,6 +90,7 @@ function App() {
               <div className="text">{msg.content}</div>
             </div>
           ))}
+          {isLoading && <div className="message xenon"><div className="text">Processing...</div></div>}
         </div>
         <div className="input-container">
           <input
@@ -99,8 +98,9 @@ function App() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Talk to Xenon..."
+            disabled={isLoading}
           />
-          <button onClick={handleSend}>Send</button>
+          <button onClick={handleSend} disabled={isLoading}>Send</button>
         </div>
       </div>
     </div>

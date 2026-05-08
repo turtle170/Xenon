@@ -12,8 +12,16 @@ async fn ask_xenon(prompt: String, config: AgentConfig) -> Result<String, String
 }
 
 #[tauri::command]
-fn init_xenon_env() -> Result<(), String> {
-    python_env::init_python().map_err(|e| e.to_string())
+fn init_xenon_env() -> Result<Option<AgentConfig>, String> {
+    python_env::init_python().map_err(|e| e.to_string())?;
+    
+    // Attempt to load existing config
+    if let Ok(config_str) = std::fs::read_to_string("config.json") {
+        if let Ok(config) = serde_json::from_str::<AgentConfig>(&config_str) {
+            return Ok(Some(config));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

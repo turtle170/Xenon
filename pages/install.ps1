@@ -1,29 +1,44 @@
-# Xenon Installer Script - Hardware-Aware Edition
+# Xenon Installer Script - Ultra Visuals & Neural Aware
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
 function Show-Header {
     Clear-Host
-    $Colors = @("Red", "Yellow", "Green", "Cyan", "Blue", "Magenta")
-    $Dragon = @(
-        "           _,---._      /|",
-        "        ,-'       `-._ / |",
-        "      ,'  X E N O N   `  |",
-        "     /                \  |",
-        "    /       ,_     ,_  \ |",
-        "   |       /  `   /  `  ||",
-        "   |       \__/   \__/  ||",
-        "   \           _        /|",
-        "    \         (_)      / |",
-        "     `.              ,'  |",
-        "       `-._      _.-'    |",
-        "           `----'        |"
-    )
-    for ($i = 0; $i -lt $Dragon.Count; $i++) {
-        Write-Host $Dragon[$i] -ForegroundColor $Colors[$i % $Colors.Count]
+    
+    # --- Advanced Terminal Graphics Detection ---
+    $SupportsKitty = $false
+    $SupportsSixel = $false
+    
+    if ($env:TERM_PROGRAM -eq "WezTerm" -or $env:TERM -match "kitty") {
+        $SupportsKitty = $true
     }
-    Write-Host "`n    X E N O N : AUTONOMOUS AGENT FRAMEWORK" -ForegroundColor Cyan
+    
+    # Simple Sixel check (Optimistic for modern Windows Terminal / VT100)
+    if ($env:WT_SESSION -ne $null) { $SupportsSixel = $true }
+
+    $iconPath = "$env:TEMP\XenonIcon.png"
+    if (!(Test-Path $iconPath)) {
+        Invoke-WebRequest -Uri "https://xenonai.pages.dev/XenonIcon.png" -OutFile $iconPath
+    }
+    
+    try {
+        if ($SupportsKitty) {
+            $bytes = [System.IO.File]::ReadAllBytes($iconPath)
+            $base64 = [System.Convert]::ToBase64String($bytes)
+            Write-Host "`e_Ga=T,f=100,a=T;$base64`e\" 
+        } elseif ($SupportsSixel) {
+            $bytes = [System.IO.File]::ReadAllBytes($iconPath)
+            $base64 = [System.Convert]::ToBase64String($bytes)
+            Write-Host "`e]1337;File=name=logo.png;inline=1;width=30;height=auto:$base64`a"
+        } else {
+            Write-Host "    [ X E N O N ]" -ForegroundColor Cyan
+        }
+    } catch {
+        Write-Host "    [ X E N O N ]" -ForegroundColor Cyan
+    }
+
+    Write-Host "`n    X E N O N : THE AUTONOMOUS AGENT" -ForegroundColor Cyan
     Write-Host "---------------------------------------------" -ForegroundColor Gray
 }
 
@@ -43,14 +58,10 @@ function Get-ProviderSelection {
     return $Keys[$Index - 1]
 }
 
-# --- 1. Hardware Detection ---
+# --- 1. Advanced Hardware Detection (VNNI Aware) ---
 Show-Header
-Show-Step "Detecting Hardware Capabilities..."
+Show-Step "Scanning CPU for Neural Acceleration (VNNI)..."
 
-$cpuInfo = Get-CimInstance Win32_Processor
-Write-Host "  CPU: $($cpuInfo.Name)" -ForegroundColor Gray
-
-# Detect SIMD via inline C#
 $simdSource = @"
 using System;
 using System.Runtime.Intrinsics.X86;
@@ -58,14 +69,27 @@ public class CpuCheck {
     public static string GetSIMD() {
         if (Avx512F.IsSupported) return "avx512";
         if (Avx2.IsSupported) return "avx2";
-        if (Avx.IsSupported) return "avx";
-        return "no-avx";
+        return "avx";
+    }
+    public static string GetVNNI() {
+        bool avxVnni = false;
+        bool avx512Vnni = false;
+        try {
+            var v2 = typeof(Avx).Assembly.GetType("System.Runtime.Intrinsics.X86.AvxVnni");
+            if (v2 != null) avxVnni = (bool)v2.GetProperty("IsSupported").GetValue(null);
+            var v512 = typeof(Avx).Assembly.GetType("System.Runtime.Intrinsics.X86.Avx512Vnni");
+            if (v512 != null) avx512Vnni = (bool)v512.GetProperty("IsSupported").GetValue(null);
+        } catch {}
+        if (avx512Vnni) return "AVX-512 VNNI";
+        if (avxVnni) return "AVX2-VNNI";
+        return "Standard";
     }
 }
 "@
-Add-Type -TypeDefinition $simdSource
+Add-Type -TypeDefinition $simdSource -ErrorAction SilentlyContinue
 $SimdFeature = [CpuCheck]::GetSIMD()
-Show-Success "Detected SIMD: $SimdFeature"
+$VnniFeature = [CpuCheck]::GetVNNI()
+Show-Success "Detected: $SimdFeature with $VnniFeature acceleration."
 
 # --- 2. Configuration Phase ---
 $Providers = @{
@@ -76,28 +100,24 @@ $Providers = @{
     "Llama (Local)" = @{ url = "https://github.com/ggerganov/llama.cpp"; model = "local" }
 }
 
-$ProviderKey = Get-ProviderSelection "Choose your LLM Provider:" $Providers
+$ProviderKey = Get-ProviderSelection "Choose your LLM Brain:" $Providers
 $ProviderInfo = $Providers[$ProviderKey]
 
 $ApiKey = ""
-$GgufPath = ""
-
-if ($ProviderKey -eq "Llama (Local)") {
-    $GgufPath = Read-Host "  Enter full path to your .GGUF model file (leave blank to just install server)"
-} else {
+if ($ProviderKey -ne "Llama (Local)") {
     Write-Host "`n  Get your API key at: $($ProviderInfo.url)" -ForegroundColor Cyan
     $valid = $false
     while (!$valid) {
         $ApiKey = Read-Host "  Enter your API Key"
         if ($ProviderKey -eq "Gemini") {
             if ($ApiKey -match "^AIza" -or $ApiKey -match "^AQ") { $valid = $true }
-            else { Write-Host "  Invalid Gemini Key. Try again." -ForegroundColor Red }
+            else { Write-Host "  Invalid Gemini Key. Use AIza... or AQ..." -ForegroundColor Red }
         } else { $valid = $true }
     }
 }
 
 # --- 3. Browser Detection ---
-Show-Step "Detecting Browsers..."
+Show-Step "Detecting Browsers for Data Import..."
 $Browsers = @{"None" = "none"}
 $Paths = @{
     "Chrome" = "$env:LOCALAPPDATA\Google\Chrome\User Data"; "Edge" = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
@@ -105,14 +125,13 @@ $Paths = @{
     "Opera GX" = "$env:APPDATA\Opera Software\Opera GX Stable"
 }
 foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b]; Write-Host "  [+] $b" -ForegroundColor Green } }
-$SelectedBrowser = Get-ProviderSelection "Select browser to import data from:" $Browsers
+$SelectedBrowser = Get-ProviderSelection "Select Browser for Context Migration:" $Browsers
 
 # --- 4. Environment Validation ---
-Show-Header
-Show-Step "Validating dependencies..."
+Show-Step "Validating local toolchain..."
 if (!(Get-Command git -ErrorAction SilentlyContinue)) { Write-Host "Error: Git required."; return }
 if (!(Get-Command cargo -ErrorAction SilentlyContinue)) { 
-    Show-Step "Installing Rust..."; irm https://sh.rustup.rs -OutFile rustup-init.exe
+    Show-Step "Installing Rust Toolchain..."; irm https://sh.rustup.rs -OutFile rustup-init.exe
     ./rustup-init.exe -y; Remove-Item ./rustup-init.exe; $env:Path += ";$HOME\.cargo\bin"
 }
 if (!(Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "Error: Node.js required."; return }
@@ -121,36 +140,34 @@ if (!(Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "Error: Node.
 Show-Step "Cloning Xenon..."
 if (Test-Path "Xenon") { Set-Location Xenon; git pull } else { git clone https://github.com/turtle170/Xenon.git; Set-Location Xenon }
 
-# --- 6. Llama Server Setup ---
-if ($ProviderKey -eq "Llama (Local)" -or $SimdFeature -ne "no-avx") {
-    Show-Step "Installing hardware-optimized llama-server ($SimdFeature)..."
-    mkdir -Force bin
-    # We use a recent stable tag
-    $tag = "b4676"
-    $zipName = "llama-$tag-bin-win-$SimdFeature-x64.zip"
-    if ($SimdFeature -eq "no-avx") { $zipName = "llama-$tag-bin-win-noavx-x64.zip" }
-    
-    $url = "https://github.com/ggerganov/llama.cpp/releases/download/$tag/$zipName"
-    Write-Host "  Downloading from: $url" -ForegroundColor Gray
-    try {
-        Invoke-WebRequest -Uri $url -OutFile "llama.zip"
-        tar -xf "llama.zip" -C bin
-        Remove-Item "llama.zip"
-        Show-Success "llama-server installed in bin/"
-    } catch {
-        Write-Host "  Failed to download optimized server. Skipping local setup." -ForegroundColor Yellow
-    }
+# --- 6. Hardware-Optimized Server Setup ---
+Show-Step "Installing Optimized llama-server..."
+mkdir -Force bin
+$tag = "b4676"
+$zipName = "llama-$tag-bin-win-$SimdFeature-x64.zip"
+$url = "https://github.com/ggerganov/llama.cpp/releases/download/$tag/$zipName"
+try {
+    Invoke-WebRequest -Uri $url -OutFile "llama.zip"
+    tar -xf "llama.zip" -C bin; Remove-Item "llama.zip"
+    Show-Success "llama-server optimized for $VnniFeature installed."
+} catch {
+    Write-Host "  Failed to download server." -ForegroundColor Yellow
 }
 
-# --- 7. Finalize ---
+# --- 7. Python Environment Setup ---
+Show-Step "Setting up dual-version embedded Python..."
+./setup_python.ps1
+Show-Success "Python environments ready."
+
+# --- 8. Finalize ---
 $Config = @{
     provider = $ProviderKey; api_key = $ApiKey; model = $ProviderInfo.model
-    local_server = "http://localhost:8080"; gguf_path = $GgufPath; import_browser = $SelectedBrowser
-    simd = $SimdFeature
+    local_server = "http://localhost:8080"; import_browser = $SelectedBrowser
+    simd = $SimdFeature; vnni = $VnniFeature
 }
 $Config | ConvertTo-Json | Set-Content "config.json"
 
-Show-Step "Building Xenon..."
+Show-Step "Building Xenon Core..."
 npm install --silent; npm run tauri build
 
 $TargetFile = Get-ChildItem -Path "src-tauri\target\release\xenon.exe" -Recurse | Select-Object -First 1
@@ -158,10 +175,8 @@ if ($TargetFile) {
     $WshShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WshShell.CreateShortcut("$HOME\Desktop\Xenon.lnk")
     $Shortcut.TargetPath = $TargetFile.FullName; $Shortcut.IconLocation = $TargetFile.FullName; $Shortcut.Save()
-    Show-Success "Shortcut created."
 }
 
 Show-Header
 Show-Success "XENON INSTALLATION SUCCESSFUL"
-Write-Host "`nHardware: $SimdFeature optimized"
-Write-Host "Launch Xenon from Desktop."
+Write-Host "`nReady to automate."
