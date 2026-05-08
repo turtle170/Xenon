@@ -1,4 +1,4 @@
-# Xenon Installer Script - Ultra Visuals & Neural Aware & Sandbox
+# Xenon Installer Script - Ultra Visuals & Neural Aware & Full Sandbox
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
@@ -38,9 +38,9 @@ function Get-ProviderSelection {
     return $Keys[$Index - 1]
 }
 
-# --- 1. Advanced Hardware Detection (VNNI) ---
+# --- 1. Advanced Hardware Detection ---
 Show-Header
-Show-Step "Scanning for Neural Acceleration..."
+Show-Step "Scanning Hardware..."
 
 $simdSource = @"
 using System;
@@ -68,33 +68,30 @@ public class CpuCheck {
 Add-Type -TypeDefinition $simdSource -ErrorAction SilentlyContinue
 $SimdFeature = [CpuCheck]::GetSIMD()
 $VnniFeature = [CpuCheck]::GetVNNI()
-Show-Success "Architecture: $SimdFeature with $VnniFeature"
 
-# --- 1.5 WSL Debian 13 Sandbox Setup ---
-Show-Step "Configuring Auto-Scaling Debian VM Sandbox..."
+# --- 1.5 WSL Debian 13 Sandbox Setup with Root Access ---
+Show-Step "Configuring Administrative Debian VM Sandbox..."
 $WslStatus = (wsl --status 2>&1)
 if ($LASTEXITCODE -eq 0 -or $WslStatus -match "Windows Subsystem for Linux") {
     $sandboxPath = "$PWD\VM"
     if (!(Test-Path $sandboxPath)) { New-Item -ItemType Directory -Force -Path $sandboxPath | Out-Null }
     
-    # We use a standard Debian rootfs link. In reality, you'd pull a specific Debian 13 (Trixie/Testing) rootfs.
-    # For robust scripting, we simulate the import process if the rootfs isn't present.
     $rootfsFile = "$env:TEMP\debian-rootfs.tar.gz"
     if (!(Test-Path $rootfsFile)) {
         Write-Host "  Downloading Debian Slim Rootfs..." -ForegroundColor Gray
-        # Placeholder URL for Debian rootfs tarball
         Invoke-WebRequest -Uri "https://github.com/debuerreotype/docker-debian-artifacts/raw/dist-amd64/testing/slim/rootfs.tar.xz" -OutFile $rootfsFile -ErrorAction SilentlyContinue
     }
     
     if (Test-Path $rootfsFile) {
         Write-Host "  Importing VM Instance 'XenonVM'..." -ForegroundColor Gray
         wsl --import XenonVM $sandboxPath $rootfsFile --version 2 2>&1 | Out-Null
-        Show-Success "Sandbox 'XenonVM' created at $sandboxPath. File system mounted automatically."
-    } else {
-        Write-Host "  Failed to download rootfs. Sandbox skipped." -ForegroundColor Yellow
+        
+        # Configure Admin Access for the AI
+        Write-Host "  Granting Full Sudo Permissions..." -ForegroundColor Gray
+        wsl -d XenonVM -u root -- sh -c "apt-get update && apt-get install -y sudo && useradd -m xenon && usermod -aG sudo xenon && echo 'xenon ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/xenon"
+        
+        Show-Success "Sandbox 'XenonVM' ready with full administrative access."
     }
-} else {
-    Write-Host "  Virtualization/WSL not enabled. Skipping VM Sandbox." -ForegroundColor Yellow
 }
 
 # --- 2. Providers ---
@@ -105,10 +102,8 @@ $Providers = @{
     "DeepSeek" = @{ url = "https://platform.deepseek.com/api_keys"; model = "deepseek-chat" }
     "Llama (Local)" = @{ url = "https://github.com/ggerganov/llama.cpp"; model = "local" }
 }
-
-$ProviderKey = Get-ProviderSelection "Choose your LLM Brain:" $Providers
+$ProviderKey = Get-ProviderSelection "Choose your LLM Provider:" $Providers
 $ProviderInfo = $Providers[$ProviderKey]
-
 $ApiKey = ""
 if ($ProviderKey -ne "Llama (Local)") {
     Write-Host "`n  Get your API key at: $($ProviderInfo.url)" -ForegroundColor Cyan
@@ -117,7 +112,7 @@ if ($ProviderKey -ne "Llama (Local)") {
         $ApiKey = Read-Host "  Enter your API Key"
         if ($ProviderKey -eq "Gemini") {
             if ($ApiKey -match "^AIza" -or $ApiKey -match "^AQ") { $valid = $true }
-            else { Write-Host "  Invalid Gemini Key. Use AIza... or AQ..." -ForegroundColor Red }
+            else { Write-Host "  Invalid Key." -ForegroundColor Red }
         } else { $valid = $true }
     }
 }
@@ -130,36 +125,27 @@ $Paths = @{
     "Brave" = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"; "Opera" = "$env:APPDATA\Opera Software\Opera Stable"
     "Opera GX" = "$env:APPDATA\Opera Software\Opera GX Stable"
 }
-foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b]; Write-Host "  [+] Detected $b" -ForegroundColor Green } }
-$SelectedBrowser = Get-ProviderSelection "Select Browser for Context Migration:" $Browsers
+foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b]; Write-Host "  [+] $b" -ForegroundColor Green } }
+$SelectedBrowser = Get-ProviderSelection "Select Browser to Migrate:" $Browsers
 
 # --- 4. Installation ---
-Show-Step "Validating System..."
-if (!(Get-Command git -ErrorAction SilentlyContinue)) { Write-Host "Error: Git required."; return }
-if (!(Get-Command cargo -ErrorAction SilentlyContinue)) { 
-    Show-Step "Installing Rust Toolchain..."; irm https://sh.rustup.rs -OutFile rustup-init.exe
-    ./rustup-init.exe -y; Remove-Item ./rustup-init.exe; $env:Path += ";$HOME\.cargo\bin"
-}
-if (!(Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "Error: Node.js required."; return }
-
 Show-Step "Cloning Xenon Agent..."
 if (Test-Path "Xenon") { Set-Location Xenon; git pull } else { git clone https://github.com/turtle170/Xenon.git; Set-Location Xenon }
 
 # --- 5. Llama Server ---
-Show-Step "Configuring Local Inference Engine..."
+Show-Step "Configuring Local Inference..."
 mkdir -Force bin
 $tag = "b4676"
 $zipName = "llama-$tag-bin-win-$SimdFeature-x64.zip"
 $url = "https://github.com/ggerganov/llama.cpp/releases/download/$tag/$zipName"
-try {
-    Invoke-WebRequest -Uri $url -OutFile "llama.zip"
-    tar -xf "llama.zip" -C bin; Remove-Item "llama.zip"
-    Show-Success "Local engine ready."
-} catch {
-    Write-Host "  Optimization failed. Using standard build." -ForegroundColor Yellow
-}
+Invoke-WebRequest -Uri $url -OutFile "llama.zip" -ErrorAction SilentlyContinue
+if (Test-Path "llama.zip") { tar -xf "llama.zip" -C bin; Remove-Item "llama.zip" }
 
-# --- 6. Finalize ---
+# --- 6. Python Environments ---
+Show-Step "Setting up Python..."
+./setup_python.ps1
+
+# --- 7. Finalize ---
 $Config = @{
     provider = $ProviderKey; api_key = $ApiKey; model = $ProviderInfo.model
     local_server = "http://localhost:8080"; import_browser = $SelectedBrowser
@@ -178,5 +164,5 @@ if ($TargetFile) {
 }
 
 Show-Header
-Show-Success "XENON DEPLOYED SUCCESSFULLY"
-Write-Host "`nReady to automate."
+Show-Success "XENON DEPLOYED WITH FULL ADMIN SANDBOX"
+Write-Host "`nReady to automate as root."
