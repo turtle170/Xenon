@@ -1,4 +1,4 @@
-# Xenon Installer Script - Ultra Visuals & Neural Aware & Full Sandbox
+# Xenon Installer Script - Ultra Visuals & VHDX Sandbox
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
@@ -69,13 +69,14 @@ Add-Type -TypeDefinition $simdSource -ErrorAction SilentlyContinue
 $SimdFeature = [CpuCheck]::GetSIMD()
 $VnniFeature = [CpuCheck]::GetVNNI()
 
-# --- 1.5 WSL Debian 13 Sandbox Setup with Root Access ---
-Show-Step "Configuring Administrative Debian VM Sandbox..."
+# --- 1.5 WSL Debian 13 VHDX Sandbox Setup ---
+Show-Step "Configuring VHDX-Backed Debian VM Sandbox..."
 $WslStatus = (wsl --status 2>&1)
 if ($LASTEXITCODE -eq 0 -or $WslStatus -match "Windows Subsystem for Linux") {
     $sandboxPath = "$PWD\VM"
     if (!(Test-Path $sandboxPath)) { New-Item -ItemType Directory -Force -Path $sandboxPath | Out-Null }
     
+    # We explicitly import as WSL2 to ensure .VHDX backing
     $rootfsFile = "$env:TEMP\debian-rootfs.tar.gz"
     if (!(Test-Path $rootfsFile)) {
         Write-Host "  Downloading Debian Slim Rootfs..." -ForegroundColor Gray
@@ -83,14 +84,16 @@ if ($LASTEXITCODE -eq 0 -or $WslStatus -match "Windows Subsystem for Linux") {
     }
     
     if (Test-Path $rootfsFile) {
-        Write-Host "  Importing VM Instance 'XenonVM'..." -ForegroundColor Gray
-        wsl --import XenonVM $sandboxPath $rootfsFile --version 2 2>&1 | Out-Null
-        
-        # Configure Admin Access for the AI
-        Write-Host "  Granting Full Sudo Permissions..." -ForegroundColor Gray
-        wsl -d XenonVM -u root -- sh -c "apt-get update && apt-get install -y sudo && useradd -m xenon && usermod -aG sudo xenon && echo 'xenon ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/xenon"
-        
-        Show-Success "Sandbox 'XenonVM' ready with full administrative access."
+        if (wsl --list | Select-String "XenonVM") {
+            Write-Host "  Sandbox 'XenonVM' exists. Skipping import." -ForegroundColor Gray
+        } else {
+            Write-Host "  Importing VM Instance to $sandboxPath\ext4.vhdx..." -ForegroundColor Gray
+            wsl --import XenonVM $sandboxPath $rootfsFile --version 2 2>&1 | Out-Null
+            
+            Write-Host "  Configuring Administrative Access..." -ForegroundColor Gray
+            wsl -d XenonVM -u root -- sh -c "apt-get update && apt-get install -y sudo && useradd -m xenon && usermod -aG sudo xenon && echo 'xenon ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/xenon"
+        }
+        Show-Success "VHDX Sandbox 'XenonVM' ready at $sandboxPath\ext4.vhdx"
     }
 }
 
@@ -118,14 +121,13 @@ if ($ProviderKey -ne "Llama (Local)") {
 }
 
 # --- 3. Browsers ---
-Show-Step "Detecting Environments..."
-$Browsers = @{"None" = "none"}
 $Paths = @{
     "Chrome" = "$env:LOCALAPPDATA\Google\Chrome\User Data"; "Edge" = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
     "Brave" = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"; "Opera" = "$env:APPDATA\Opera Software\Opera Stable"
     "Opera GX" = "$env:APPDATA\Opera Software\Opera GX Stable"
 }
-foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b]; Write-Host "  [+] $b" -ForegroundColor Green } }
+$Browsers = @{"None" = "none"}
+foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b] } }
 $SelectedBrowser = Get-ProviderSelection "Select Browser to Migrate:" $Browsers
 
 # --- 4. Installation ---
@@ -164,5 +166,5 @@ if ($TargetFile) {
 }
 
 Show-Header
-Show-Success "XENON DEPLOYED WITH FULL ADMIN SANDBOX"
-Write-Host "`nReady to automate as root."
+Show-Success "XENON DEPLOYED WITH VHDX SANDBOX"
+Write-Host "`nStorage: $sandboxPath\ext4.vhdx"
