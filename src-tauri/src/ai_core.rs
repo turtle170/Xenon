@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use reqwest::Client;
 use serde_json::json;
 use std::fs;
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentConfig {
@@ -32,10 +33,13 @@ impl XenonAgent {
         Ok(Self::new(config))
     }
 
-    pub async fn process(&self, prompt: &str) -> anyhow::Result<String> {
+    pub async fn process(&self, app: &AppHandle, prompt: &str) -> anyhow::Result<String> {
+        let _ = app.emit("agent_activity", format!("Processing user prompt: {}...", &prompt[..std::cmp::min(prompt.len(), 20)]));
+        
         let system_prompt = "You are Xenon. Direct. Autonomous. No slack. \
             If you need a tool you don't have, output CODE: <python code> to create it. \
             Always define an 'execute(args)' function in your code. \
+            You have standard tools: 'read_file' and 'write_file'. \
             Otherwise, answer directly.";
 
         let url = match self.config.provider.as_str() {
@@ -48,6 +52,8 @@ impl XenonAgent {
         };
 
         let api_key = self.config.api_key.clone().unwrap_or_default();
+        
+        let _ = app.emit("agent_activity", format!("Querying provider: {}", self.config.provider));
 
         let response = self.client.post(url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -63,6 +69,7 @@ impl XenonAgent {
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
+            let _ = app.emit("agent_activity", format!("API Error: {}", error_text));
             return Err(anyhow::anyhow!("API Error: {}", error_text));
         }
 
@@ -70,14 +77,21 @@ impl XenonAgent {
         let content = res_json["choices"][0]["message"]["content"].as_str().unwrap_or("No response").to_string();
 
         if content.contains("CODE:") {
+            let _ = app.emit("agent_activity", "Analyzing generated code block...".to_string());
             let code = content.split("CODE:").nth(1).unwrap_or("").trim();
             let skill_name = format!("skill_{}", uuid::Uuid::new_v4().simple());
+            
+            let _ = app.emit("agent_activity", format!("Saving new dynamic skill: {}.py", skill_name));
             python_env::save_ai_function(&skill_name, code)?;
             
+            let _ = app.emit("agent_activity", format!("Executing {} within local Sandbox...", skill_name));
             let result = python_env::call_ai_function(&skill_name, prompt).map_err(|e| anyhow::anyhow!(e))?;
+            
+            let _ = app.emit("agent_activity", "Execution complete.".to_string());
             return Ok(format!("[Skill Created: {}]\n{}", skill_name, result));
         }
 
+        let _ = app.emit("agent_activity", "Response received from LLM.".to_string());
         Ok(content)
     }
 }

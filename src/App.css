@@ -16,7 +16,7 @@ body {
 }
 
 .sidebar {
-  width: 260px;
+  width: 320px;
   background-color: #0a0a0a;
   border-right: 1px solid #1a1a1a;
   padding: 20px;
@@ -52,6 +52,51 @@ body {
   padding: 8px;
   border-radius: 4px;
   font-size: 0.9rem;
+}
+
+.activity-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.activity-panel h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 10px;
+  letter-spacing: 0.05em;
+}
+
+.activity-log {
+  flex: 1;
+  background: #000;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace, Consolas;
+  font-size: 0.75rem;
+  color: #00ffaa;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  word-break: break-all;
+}
+
+.timestamp {
+  color: #555;
+  min-width: 65px;
+}
+
+.log-msg {
+  color: #aaa;
 }
 
 .main {
@@ -131,4 +176,9 @@ button {
 
 button:hover {
   background: #ccc;
+}
+
+button:disabled {
+  background: #555;
+  cursor: not-allowed;
 }

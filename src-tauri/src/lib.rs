@@ -6,9 +6,9 @@ use tauri::{AppHandle, Manager, Runtime};
 use crate::ai_core::AgentConfig;
 
 #[tauri::command]
-async fn ask_xenon(prompt: String, config: AgentConfig) -> Result<String, String> {
+async fn ask_xenon(app: tauri::AppHandle, prompt: String, config: AgentConfig) -> Result<String, String> {
     let agent = ai_core::XenonAgent::new(config);
-    agent.process(&prompt).await.map_err(|e| e.to_string())
+    agent.process(&app, &prompt).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
