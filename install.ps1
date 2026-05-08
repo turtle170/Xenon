@@ -1,162 +1,124 @@
-# Xenon Installer Script - Ultra Visuals & VHDX Sandbox
+# Xenon Installer Script - Native Hyper-V Performance & Model Selection
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
 function Show-Header {
     Clear-Host
-    $SupportsKitty = $false
-    $SupportsSixel = $false
-    if ($env:TERM_PROGRAM -eq "WezTerm" -or $env:TERM -match "kitty") { $SupportsKitty = $true }
-    if ($env:WT_SESSION -ne $null) { $SupportsSixel = $true }
-
-    $iconPath = "$env:TEMP\XenonIcon.png"
-    if (!(Test-Path $iconPath)) { Invoke-WebRequest -Uri "https://xenonai.pages.dev/XenonIcon.png" -OutFile $iconPath }
-    
-    try {
-        if ($SupportsKitty) {
-            $bytes = [System.IO.File]::ReadAllBytes($iconPath); $base64 = [System.Convert]::ToBase64String($bytes)
-            Write-Host "`e_Ga=T,f=100,a=T;$base64`e\" 
-        } elseif ($SupportsSixel) {
-            $bytes = [System.IO.File]::ReadAllBytes($iconPath); $base64 = [System.Convert]::ToBase64String($bytes)
-            Write-Host "`e]1337;File=name=logo.png;inline=1;width=30;height=auto:$base64`a"
-        } else { Write-Host "    [ X E N O N ]" -ForegroundColor Cyan }
-    } catch { Write-Host "    [ X E N O N ]" -ForegroundColor Cyan }
-
-    Write-Host "`n    X E N O N : THE AUTONOMOUS AGENT" -ForegroundColor Cyan
+    $Colors = @("Red", "Yellow", "Green", "Cyan", "Blue", "Magenta")
+    $Dragon = @(
+        "           _,---._      /|",
+        "        ,-'       `-._ / |",
+        "      ,'  X E N O N   `  |",
+        "     /                \  |",
+        "    /       ,_     ,_  \ |",
+        "   |       /  `   /  `  ||",
+        "   |       \__/   \__/  ||",
+        "   \           _        /|",
+        "    \         (_)      / |",
+        "     `.              ,'  |",
+        "       `-._      _.-'    |",
+        "           `----'        |"
+    )
+    for ($i = 0; $i -lt $Dragon.Count; $i++) {
+        Write-Host $Dragon[$i] -ForegroundColor $Colors[$i % $Colors.Count]
+    }
+    Write-Host "`n    X E N O N : NATIVE HYPER-V PERFORMANCE" -ForegroundColor Cyan
     Write-Host "---------------------------------------------" -ForegroundColor Gray
 }
 
 function Show-Step { param([string]$Message) Write-Host "`n[>] $Message" -ForegroundColor Yellow }
 function Show-Success { param([string]$Message) Write-Host "[v] $Message" -ForegroundColor Green }
-function Get-ProviderSelection {
-    param([string]$Prompt, [hashtable]$Options)
-    Show-Header; Write-Host "`n$Prompt`n" -ForegroundColor White
-    $Keys = $Options.Keys | Sort-Object
-    for ($i = 0; $i -lt $Keys.Count; $i++) { Write-Host "  $($i + 1)) $($Keys[$i])" -ForegroundColor Gray }
-    Write-Host ""; $Index = Read-Host "  Select option (1-$($Keys.Count))"
-    return $Keys[$Index - 1]
+
+function Get-Selection {
+    param([string]$Prompt, [string[]]$Options)
+    Write-Host "`n$Prompt`n" -ForegroundColor White
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        Write-Host "  $($i + 1)) $($Options[$i])" -ForegroundColor Gray
+    }
+    Write-Host ""
+    $Index = Read-Host "  Select option (1-$($Options.Count))"
+    return $Options[$Index - 1]
 }
 
-# --- 1. Advanced Hardware Detection ---
+# --- 1. Hyper-V Pre-flight ---
 Show-Header
-Show-Step "Scanning Hardware..."
-
-$simdSource = @"
-using System;
-using System.Runtime.Intrinsics.X86;
-public class CpuCheck {
-    public static string GetSIMD() {
-        if (Avx512F.IsSupported) return "avx512";
-        if (Avx2.IsSupported) return "avx2";
-        return "avx";
-    }
-    public static string GetVNNI() {
-        bool avxVnni = false; bool avx512Vnni = false;
-        try {
-            var v2 = typeof(Avx).Assembly.GetType("System.Runtime.Intrinsics.X86.AvxVnni");
-            if (v2 != null) avxVnni = (bool)v2.GetProperty("IsSupported").GetValue(null);
-            var v512 = typeof(Avx).Assembly.GetType("System.Runtime.Intrinsics.X86.Avx512Vnni");
-            if (v512 != null) avx512Vnni = (bool)v512.GetProperty("IsSupported").GetValue(null);
-        } catch {}
-        if (avx512Vnni) return "AVX-512 VNNI";
-        if (avxVnni) return "AVX2-VNNI";
-        return "Standard";
-    }
+Show-Step "Checking for Hyper-V Capabilities..."
+$hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V
+if ($hyperv.State -ne 'Enabled') {
+    Write-Host "  Hyper-V is not enabled. Attempting to enable (Requires Reboot)..." -ForegroundColor Yellow
+    Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart
+    Write-Host "  Hyper-V enabled. Please restart your PC and run this installer again." -ForegroundColor Red
+    return
 }
-"@
-Add-Type -TypeDefinition $simdSource -ErrorAction SilentlyContinue
-$SimdFeature = [CpuCheck]::GetSIMD()
-$VnniFeature = [CpuCheck]::GetVNNI()
+Show-Success "Hyper-V is active."
 
-# --- 1.5 WSL Debian 13 VHDX Sandbox Setup ---
-Show-Step "Configuring VHDX-Backed Debian VM Sandbox..."
-$WslStatus = (wsl --status 2>&1)
-if ($LASTEXITCODE -eq 0 -or $WslStatus -match "Windows Subsystem for Linux") {
-    $sandboxPath = "$PWD\VM"
-    if (!(Test-Path $sandboxPath)) { New-Item -ItemType Directory -Force -Path $sandboxPath | Out-Null }
-    
-    # We explicitly import as WSL2 to ensure .VHDX backing
-    $rootfsFile = "$env:TEMP\debian-rootfs.tar.gz"
-    if (!(Test-Path $rootfsFile)) {
-        Write-Host "  Downloading Debian Slim Rootfs..." -ForegroundColor Gray
-        Invoke-WebRequest -Uri "https://github.com/debuerreotype/docker-debian-artifacts/raw/dist-amd64/testing/slim/rootfs.tar.xz" -OutFile $rootfsFile -ErrorAction SilentlyContinue
-    }
-    
-    if (Test-Path $rootfsFile) {
-        if (wsl --list | Select-String "XenonVM") {
-            Write-Host "  Sandbox 'XenonVM' exists. Skipping import." -ForegroundColor Gray
-        } else {
-            Write-Host "  Importing VM Instance to $sandboxPath\ext4.vhdx..." -ForegroundColor Gray
-            wsl --import XenonVM $sandboxPath $rootfsFile --version 2 2>&1 | Out-Null
-            
-            Write-Host "  Configuring Administrative Access..." -ForegroundColor Gray
-            wsl -d XenonVM -u root -- sh -c "apt-get update && apt-get install -y sudo && useradd -m xenon && usermod -aG sudo xenon && echo 'xenon ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/xenon"
-        }
-        Show-Success "VHDX Sandbox 'XenonVM' ready at $sandboxPath\ext4.vhdx"
-    }
+# --- 2. VM Provisioning ---
+Show-Step "Provisioning Native Debian VM Sandbox..."
+$VMName = "XenonVM"
+$VHDPath = "$PWD\VM\XenonDisk.vhdx"
+if (!(Test-Path "VM")) { New-Item -ItemType Directory "VM" }
+
+if (!(Test-Path $VHDPath)) {
+    Write-Host "  Downloading High-Performance Debian Root Image..." -ForegroundColor Gray
+    $sourceUrl = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.vhdx"
+    Invoke-WebRequest -Uri $sourceUrl -OutFile $VHDPath
 }
 
-# --- 2. Providers ---
+if (!(Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
+    Write-Host "  Creating VM with Dynamic Memory (200MB - 4GB)..." -ForegroundColor Gray
+    New-VM -Name $VMName -MemoryStartupBytes 200MB -VHDPath $VHDPath -Generation 2
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
+    Set-VMProcessor -VMName $VMName -Count 2
+    Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
+    Show-Success "Native VM '$VMName' created."
+}
+
+# --- 3. Provider & Model Configuration ---
+Show-Step "Brain Configuration"
 $Providers = @{
-    "OpenAI" = @{ url = "https://platform.openai.com/api-keys"; model = "gpt-4o" }
-    "Anthropic" = @{ url = "https://console.anthropic.com/settings/keys"; model = "claude-3-5-sonnet-latest" }
-    "Gemini" = @{ url = "https://aistudio.google.com/app/apikey"; model = "gemini-1.5-pro" }
-    "DeepSeek" = @{ url = "https://platform.deepseek.com/api_keys"; model = "deepseek-chat" }
-    "Llama (Local)" = @{ url = "https://github.com/ggerganov/llama.cpp"; model = "local" }
-}
-$ProviderKey = Get-ProviderSelection "Choose your LLM Provider:" $Providers
-$ProviderInfo = $Providers[$ProviderKey]
-$ApiKey = ""
-if ($ProviderKey -ne "Llama (Local)") {
-    Write-Host "`n  Get your API key at: $($ProviderInfo.url)" -ForegroundColor Cyan
-    $valid = $false
-    while (!$valid) {
-        $ApiKey = Read-Host "  Enter your API Key"
-        if ($ProviderKey -eq "Gemini") {
-            if ($ApiKey -match "^AIza" -or $ApiKey -match "^AQ") { $valid = $true }
-            else { Write-Host "  Invalid Key." -ForegroundColor Red }
-        } else { $valid = $true }
-    }
+    "OpenAI" = @("gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo")
+    "Anthropic" = @("claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-latest")
+    "Gemini" = @("gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro")
+    "DeepSeek" = @("deepseek-chat", "deepseek-coder")
+    "Llama (Local)" = @("local-gguf")
 }
 
-# --- 3. Browsers ---
+$ProviderNames = $Providers.Keys | Sort-Object
+$SelectedProvider = Get-Selection "Choose your LLM Provider:" $ProviderNames
+$SelectedModel = Get-Selection "Choose model for $SelectedProvider:" $Providers[$SelectedProvider]
+
+$ApiKey = ""
+if ($SelectedProvider -ne "Llama (Local)") {
+    $ApiKey = Read-Host "  Enter your API Key for $SelectedProvider"
+}
+
+# --- 4. Browser Selection ---
+Show-Step "Detecting Browsers..."
 $Paths = @{
     "Chrome" = "$env:LOCALAPPDATA\Google\Chrome\User Data"; "Edge" = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
     "Brave" = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"; "Opera" = "$env:APPDATA\Opera Software\Opera Stable"
     "Opera GX" = "$env:APPDATA\Opera Software\Opera GX Stable"
 }
-$Browsers = @{"None" = "none"}
-foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $Browsers[$b] = $Paths[$b] } }
-$SelectedBrowser = Get-ProviderSelection "Select Browser to Migrate:" $Browsers
+$BrowserOptions = @("None")
+foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $BrowserOptions += $b } }
+$SelectedBrowser = Get-Selection "Select Browser for Context Migration:" $BrowserOptions
 
-# --- 4. Installation ---
-Show-Step "Cloning Xenon Agent..."
-if (Test-Path "Xenon") { Set-Location Xenon; git pull } else { git clone https://github.com/turtle170/Xenon.git; Set-Location Xenon }
-
-# --- 5. Llama Server ---
-Show-Step "Configuring Local Inference..."
-mkdir -Force bin
-$tag = "b4676"
-$zipName = "llama-$tag-bin-win-$SimdFeature-x64.zip"
-$url = "https://github.com/ggerganov/llama.cpp/releases/download/$tag/$zipName"
-Invoke-WebRequest -Uri $url -OutFile "llama.zip" -ErrorAction SilentlyContinue
-if (Test-Path "llama.zip") { tar -xf "llama.zip" -C bin; Remove-Item "llama.zip" }
-
-# --- 6. Python Environments ---
-Show-Step "Setting up Python..."
-./setup_python.ps1
-
-# --- 7. Finalize ---
+# --- 5. Save Configuration ---
 $Config = @{
-    provider = $ProviderKey; api_key = $ApiKey; model = $ProviderInfo.model
-    local_server = "http://localhost:8080"; import_browser = $SelectedBrowser
-    simd = $SimdFeature; vnni = $VnniFeature
+    provider = $SelectedProvider
+    model = $SelectedModel
+    api_key = $ApiKey
+    vm_type = "Hyper-V"
+    vm_name = $VMName
+    import_browser = $SelectedBrowser
 }
 $Config | ConvertTo-Json | Set-Content "config.json"
 
-Show-Step "Building Xenon..."
-npm install --silent; npm run tauri build
+# --- 6. Build ---
+Show-Step "Building Xenon Core..."
+npm install --silent
+npm run tauri build
 
 $TargetFile = Get-ChildItem -Path "src-tauri\target\release\xenon.exe" -Recurse | Select-Object -First 1
 if ($TargetFile) {
@@ -166,5 +128,8 @@ if ($TargetFile) {
 }
 
 Show-Header
-Show-Success "XENON DEPLOYED WITH VHDX SANDBOX"
-Write-Host "`nStorage: $sandboxPath\ext4.vhdx"
+Show-Success "XENON DEPLOYED SUCCESSFULLY"
+Write-Host "`nProvider: $SelectedProvider"
+Write-Host "Model: $SelectedModel"
+Write-Host "Storage: VHDX / Hyper-V Native"
+Write-Host "`nReady to automate."
