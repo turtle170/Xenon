@@ -1,4 +1,4 @@
-# Xenon Installer Script - Debian 13 High-Performance VHDX Edition (Extraction Fix)
+# Xenon Installer Script - Aggressive Performance Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -31,8 +31,7 @@ function Get-Selection {
     Show-Header
     Write-Host "    ${Prompt}:" -ForegroundColor White
     for ($i = 0; $i -lt $Options.Count; $i++) {
-        $idx = $i + 1
-        $opt = $Options[$i]
+        $idx = $i + 1; $opt = $Options[$i]
         Write-Host "      [${idx}] ${opt}" -ForegroundColor Gray
     }
     Write-Host ''
@@ -40,47 +39,63 @@ function Get-Selection {
     return $Options[[int]${Index} - 1]
 }
 
-# --- 1. Hyper-V ---
+# --- 1. Hyper-V (Aggressive Detection) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-if (!(Get-Service vmms -ErrorAction SilentlyContinue)) {
-    Write-Host '    [!] Enabling Hyper-V Layer...' -ForegroundColor Yellow
+
+$hypervActive = $false
+# Check 1: Can we run Get-VM?
+try {
+    Get-VM -ErrorAction SilentlyContinue | Out-Null
+    $hypervActive = $true
+} catch {
+    # Check 2: Is the management service there?
+    if (Get-Service vmms -ErrorAction SilentlyContinue) { $hypervActive = $true }
+}
+
+if (!$hypervActive) {
+    # Final check: DISM
+    $info = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V-All /english
+    if ($info -match "State : Enabled") { $hypervActive = $true }
+}
+
+if (!$hypervActive) {
+    Write-Host '    [!] Enabling Hyper-V Performance Layer...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
-    Write-Host '    [!] Reboot required. Run script again after restart.' -ForegroundColor Red
+    Write-Host '    [!] Action required: Please reboot your PC and re-run this script.' -ForegroundColor Red
     return
 }
-Show-Success 'Hyper-V Active.'
+Show-Success 'Hyper-V Layer Active.'
 
-# --- 2. Sandbox ---
+# --- 2. Sandbox (Resilient Extraction) ---
 Show-Step 'Provisioning Debian 13 VHDX...'
 $VMName = 'XenonVM'
 $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    Write-Host '    [!] Downloading High-Performance Core...' -ForegroundColor Gray
     $sourceUrl = 'https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-azure-amd64-daily.tar.xz'
     $tempTar = "${env:TEMP}\debian13.tar.xz"
-    Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     
-    if ((Get-Item ${tempTar}).Length -lt 100MB) {
-        throw "Download failed or incomplete (File too small)."
+    if (!(Test-Path ${tempTar})) {
+        Write-Host '    [!] Fetching Core Image (700MB+)...' -ForegroundColor Gray
+        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     }
-
-    Write-Host '    [!] Finalizing VHDX...' -ForegroundColor Gray
-    # Force extraction and list files for debugging
-    tar -xf ${tempTar} -C VM --verbose
     
-    $vhdFile = Get-ChildItem -Path VM -Filter "*.*" | Where-Object { $_.Extension -match "vhd" } | Select-Object -First 1
+    Write-Host '    [!] Unpacking Virtual Disk...' -ForegroundColor Gray
+    # We unpack and check for any file. Some 'tar' versions need specific flags.
+    tar -xf ${tempTar} -C VM
     
+    $vhdFile = Get-ChildItem -Path VM -Recurse -Include "*.vhd" | Select-Object -First 1
     if ($vhdFile) {
-        Write-Host "    [!] Found disk: $($vhdFile.Name). Converting..." -ForegroundColor Gray
+        Write-Host "    [!] Found: $($vhdFile.Name). Optimizing to VHDX..." -ForegroundColor Gray
         Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
     } else {
-        $files = Get-ChildItem -Path VM | Select-Object -ExpandProperty Name
-        throw "Failed to find VHD. Found files: $($files -join ', ')"
+        # Debug: list what was actually in the tar
+        $contents = tar -tf ${tempTar}
+        throw "Extraction failed. The archive contained: ${contents}"
     }
-    Remove-Item ${tempTar}
+    if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
 }
 
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
@@ -89,7 +104,7 @@ if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
     Set-VMProcessor -VMName ${VMName} -Count 2
     Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
 }
-Show-Success "Sandbox Ready."
+Show-Success 'Sandbox Ready.'
 
 # --- 3. Configuration ---
 $Providers = @{
@@ -101,26 +116,16 @@ $Providers = @{
 $ProviderNames = $Providers.Keys | Sort-Object
 $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
 $SelectedModel = Get-Selection 'M O D E L' $Providers[${SelectedProvider}]
-$ApiKey = Read-Host "    Enter API Key"
+$ApiKey = Read-Host "    Enter API Key for ${SelectedProvider}"
 
-# --- 4. Context Migration ---
-$Paths = @{
-    'Chrome' = "${env:LOCALAPPDATA}\Google\Chrome\User Data"
-    'Edge' = "${env:LOCALAPPDATA}\Microsoft\Edge\User Data"
-    'Brave' = "${env:LOCALAPPDATA}\BraveSoftware\Brave-Browser\User Data"
-}
-$BrowserOptions = @('None')
-foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $BrowserOptions += $b } }
-$SelectedBrowser = Get-Selection 'C O N T E X T' $BrowserOptions
-
-# --- 5. Build ---
+# --- 4. Build ---
 $Config = @{
     provider = ${SelectedProvider}; model = ${SelectedModel}; api_key = ${ApiKey}
-    vm_type = 'Hyper-V'; vm_name = ${VMName}; import_browser = ${SelectedBrowser}
+    vm_type = 'Hyper-V'; vm_name = ${VMName}
 }
 $Config | ConvertTo-Json | Set-Content 'config.json'
 
-Show-Step 'Building Project...'
+Show-Step 'Compiling Xenon Core...'
 npm install --silent; npm run tauri build
 
 Show-Header
