@@ -1,4 +1,4 @@
-# Xenon Installer Script - Block TUI Edition
+# Xenon Installer Script - Block TUI Edition (DISM Robust)
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -45,13 +45,15 @@ function Get-Selection {
     return $Options[[int]${Index} - 1]
 }
 
-# --- 1. Hyper-V ---
+# --- 1. Hyper-V (Robust DISM Check) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-$hyperv = Get-WindowsOptionalFeature -Online -FeatureName 'Microsoft-Hyper-V'
-if ($hyperv.State -ne 'Enabled') {
-    Write-Host '    [!] Enabling Hyper-V Performance Layer...' -ForegroundColor Yellow
-    Enable-WindowsOptionalFeature -Online -FeatureName 'Microsoft-Hyper-V-All' -NoRestart | Out-Null
+$hypervInfo = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V /english
+$isEnabled = $hypervInfo -match "State : Enabled"
+
+if (!$isEnabled) {
+    Write-Host '    [!] Enabling Hyper-V Performance Layer via DISM...' -ForegroundColor Yellow
+    dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
     Write-Host '    [!] Reboot required. Run this script again after restart.' -ForegroundColor Red
     return
 }
