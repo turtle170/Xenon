@@ -4,7 +4,7 @@ pub mod ai_core;
 pub mod vm_manager;
 
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{State};
 use crate::ai_core::AgentConfig;
 use crate::vm_manager::VmManager;
 
