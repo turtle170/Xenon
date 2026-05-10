@@ -1,4 +1,4 @@
-# Xenon Installer Script - Block TUI Edition (DISM Robust)
+# Xenon Installer Script - Block TUI Edition (Fix VHDX Source)
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -45,14 +45,14 @@ function Get-Selection {
     return $Options[[int]${Index} - 1]
 }
 
-# --- 1. Hyper-V (Robust DISM Check) ---
+# --- 1. Hyper-V ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
 $hypervInfo = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V /english
 $isEnabled = $hypervInfo -match "State : Enabled"
 
 if (!$isEnabled) {
-    Write-Host '    [!] Enabling Hyper-V Performance Layer via DISM...' -ForegroundColor Yellow
+    Write-Host '    [!] Enabling Hyper-V...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
     Write-Host '    [!] Reboot required. Run this script again after restart.' -ForegroundColor Red
     return
@@ -62,17 +62,37 @@ Show-Success 'Hyper-V Active.'
 # --- 2. Sandbox ---
 Show-Step 'Provisioning Native Sandbox...'
 $VMName = 'XenonVM'
-$VHDPath = "${PWD}\VM\XenonDisk.vhdx"
+$VHDPath = "${PWD}\VM\XenonDisk.vhd"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
+
 if (!(Test-Path ${VHDPath})) {
-    Write-Host '    [!] Downloading Debian Image...' -ForegroundColor Gray
-    $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.vhdx'
-    Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${VHDPath}
+    Write-Host '    [!] Downloading Debian Cloud Image (VHD)...' -ForegroundColor Gray
+    $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-azure-amd64.tar.xz'
+    $tempTar = "${env:TEMP}\debian.tar.xz"
+    
+    Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
+    
+    Write-Host '    [!] Extracting disk image...' -ForegroundColor Gray
+    # Windows 11 tar supports .tar.xz
+    tar -xf ${tempTar} -C VM
+    
+    $extractedVhd = Get-ChildItem -Path VM -Filter "*.vhd" | Select-Object -First 1
+    if ($extractedVhd) {
+        Move-Item -Path $extractedVhd.FullName -Destination ${VHDPath} -Force
+    } else {
+        throw "Could not find extracted VHD in VM directory."
+    }
+    Remove-Item ${tempTar}
 }
+
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
-    New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDPath} -Generation 2 | Out-Null
+    Write-Host '    [!] Creating VM with Dynamic Memory...' -ForegroundColor Gray
+    New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDPath} -Generation 1 | Out-Null
+    # Note: Cloud VHDs are often Generation 1 (BIOS) compatible for Azure. 
+    # If the image supports UEFI, we use Gen 2, but Gen 1 is safer for the Azure VHD.
     Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
     Set-VMProcessor -VMName ${VMName} -Count 2
+    Show-Success "VM Created with VHD storage."
 }
 
 # --- 3. Configuration ---
@@ -103,7 +123,7 @@ $BrowserOptions = @('None')
 foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $BrowserOptions += $b } }
 $SelectedBrowser = Get-Selection 'C O N T E X T' $BrowserOptions
 
-# --- 5. Save & Compile ---
+# --- 5. Finalize ---
 $Config = @{
     provider = ${SelectedProvider}; model = ${SelectedModel}; api_key = ${ApiKey}
     vm_type = 'Hyper-V'; vm_name = ${VMName}; import_browser = ${SelectedBrowser}
@@ -115,4 +135,4 @@ npm install --silent; npm run tauri build
 
 Show-Header
 Show-Success 'XENON DEPLOYED'
-Write-Host "    Launch via shortcut or 'npm run tauri dev'."
+Write-Host "    Launch via 'npm run tauri dev'."
