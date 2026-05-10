@@ -1,4 +1,4 @@
-# Xenon Installer Script - Direct VHDX Edition (LTSC-Ready)
+# Xenon Installer Script - High-Performance VHDX Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -44,22 +44,14 @@ function Get-Selection {
 # --- 1. Hyper-V (Permissive Detection) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-
 $hypervActive = $false
 
-# A. Check Hyper-V Cmdlets
 if (Get-Command Get-VM -ErrorAction SilentlyContinue) { $hypervActive = $true }
-
-# B. Check Virtual Machine Management Service
 if (!$hypervActive -and (Get-Service vmms -ErrorAction SilentlyContinue)) { $hypervActive = $true }
-
-# C. Check DISM Enabled Features (Broad Search)
 if (!$hypervActive) {
     $features = dism.exe /online /get-features /format:table
     if ($features -match "Microsoft-Hyper-V.*Enabled") { $hypervActive = $true }
 }
-
-# D. Check Hypervisor Presence (WMI)
 if (!$hypervActive) {
     $sysInfo = Get-CimInstance Win32_ComputerSystem
     if ($sysInfo.HypervisorPresent) { $hypervActive = $true }
@@ -67,58 +59,58 @@ if (!$hypervActive) {
 
 if (!$hypervActive) {
     Write-Host '    [!] Automated detection failed.' -ForegroundColor Yellow
-    Write-Host '    [!] If you have already enabled Hyper-V/Virtualization, we can proceed.' -ForegroundColor Gray
-    $choice = Read-Host '    [?] Force proceed anyway? (y/N)'
-    if ($choice -eq 'y') { 
-        $hypervActive = $true 
-        Write-Host '    [+] Overriding detection...' -ForegroundColor Cyan
-    }
+    $choice = Read-Host '    [?] Force proceed? (y/N)'
+    if ($choice -eq 'y') { $hypervActive = $true }
 }
 
 if (!$hypervActive) {
-    Write-Host '    [!] Enabling Hyper-V Layer via DISM...' -ForegroundColor Yellow
+    Write-Host '    [!] Enabling Hyper-V Layer...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
-    Write-Host '    [!] Reboot required. Run script again after restart.' -ForegroundColor Red
+    Write-Host '    [!] Reboot required.' -ForegroundColor Red
     return
 }
 Show-Success 'Hyper-V Layer Active.'
 
-# --- 2. Sandbox (Native VHDX) ---
+# --- 2. Sandbox (Resilient VHDX) ---
 Show-Step 'Provisioning Native VHDX Sandbox...'
 $VMName = 'XenonVM'
 $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    # Use Vagrant Cloud direct VHDX (Debian 12 Stable)
-    $sourceUrl = 'https://vagrantcloud.com/debian/boxes/bookworm64/versions/12.20240424.1/providers/hyperv.box'
-    $tempBox = "${env:TEMP}\xenon-core.box"
+    # Using stable Debian 12 Azure image (guaranteed VHD format)
+    $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-azure-amd64.tar.xz'
+    $tempTar = "${env:TEMP}\xenon-core.tar.xz"
     
-    if (!(Test-Path ${tempBox})) {
-        Write-Host '    [!] Fetching Native VHDX Image (700MB+)...' -ForegroundColor Gray
-        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempBox}
-    }
+    Write-Host '    [!] Fetching Virtual Core Image...' -ForegroundColor Gray
+    Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     
-    Write-Host '    [!] Extracting Hardware Image...' -ForegroundColor Gray
-    tar -xf ${tempBox} -C VM
+    Write-Host '    [!] Unpacking Hardware Image...' -ForegroundColor Gray
+    tar -xf ${tempTar} -C VM
     
-    $vhdxFile = Get-ChildItem -Path VM -Recurse -Include "*.vhdx" | Select-Object -First 1
-    if ($vhdxFile) {
-        Move-Item -Path $vhdxFile.FullName -Destination ${VHDXPath} -Force
+    $diskFile = Get-ChildItem -Path VM -Recurse | Where-Object { $_.Extension -match "vhd|raw" } | Select-Object -First 1
+    if ($diskFile) {
+        Write-Host "    [!] Finalizing disk: $($diskFile.Name)..." -ForegroundColor Gray
+        if (Get-Command Convert-VHD -ErrorAction SilentlyContinue) {
+            Convert-VHD -Path $diskFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
+        } else {
+            # Fallback: Just move and rename if the conversion cmdlet is missing
+            Move-Item -Path $diskFile.FullName -Destination ${VHDXPath} -Force
+        }
     } else {
-        throw "Native VHDX not found in downloaded image."
+        throw "Failed to map disk image."
     }
-    if (Test-Path ${tempBox}) { Remove-Item ${tempBox} }
+    if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
 }
 
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
-    Write-Host '    [!] Configuring Gen 2 VM...' -ForegroundColor Gray
+    Write-Host '    [!] Configuring Gen 2 Performance VM...' -ForegroundColor Gray
     New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDXPath} -Generation 2 | Out-Null
     Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
     Set-VMProcessor -VMName ${VMName} -Count 2
     Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
 }
-Show-Success 'Native VHDX Sandbox Active.'
+Show-Success 'Native VHDX Sandbox Ready.'
 
 # --- 3. Configuration ---
 $Providers = @{
@@ -130,17 +122,16 @@ $Providers = @{
 $ProviderNames = $Providers.Keys | Sort-Object
 $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
 $SelectedModel = Get-Selection 'M O D E L' $Providers[${SelectedProvider}]
-Write-Host ''
-$ApiKey = Read-Host "    Enter API Key for ${SelectedProvider}"
+$ApiKey = Read-Host "    Enter API Key"
 
-# --- 4. Save & Build ---
+# --- 4. Finalize ---
 $Config = @{
     provider = ${SelectedProvider}; model = ${SelectedModel}; api_key = ${ApiKey}
     vm_type = 'Hyper-V'; vm_name = ${VMName}
 }
 $Config | ConvertTo-Json | Set-Content 'config.json'
 
-Show-Step 'Compiling Xenon Engine...'
+Show-Step 'Building Xenon Engine...'
 npm install --silent; npm run tauri build
 
 Show-Header
