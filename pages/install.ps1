@@ -1,13 +1,11 @@
-# Xenon Installer Script - Block TUI Edition (Fix VHDX Source)
+# Xenon Installer Script - Debian 13 High-Performance VHDX Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
 
 # --- 0. Admin Elevation ---
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host '    [!] Administrative permissions required for Hyper-V management.' -ForegroundColor Red
-    Write-Host '    [!] Please run your terminal as Administrator.' -ForegroundColor Yellow
-    Write-Host ''
+    Write-Host '    [!] Administrative permissions required.' -ForegroundColor Red
     return
 }
 
@@ -20,11 +18,8 @@ function Show-Header {
         '   ██ ██  ██      ██  ██ ██ ██    ██ ██  ██ ██',
         '  ██   ██ ███████ ██   ████  ██████  ██   ████'
     )
-    
     Write-Host ''
-    foreach ($line in $Logo) {
-        Write-Host "    ${line}" -ForegroundColor Cyan
-    }
+    foreach ($line in $Logo) { Write-Host "    ${line}" -ForegroundColor Cyan }
     Write-Host "`n    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
 }
 
@@ -45,94 +40,76 @@ function Get-Selection {
     return $Options[[int]${Index} - 1]
 }
 
-# --- 1. Hyper-V ---
+# --- 1. Hyper-V (DISM) ---
 Show-Header
-Show-Step 'Validating Hyper-V Layer...'
+Show-Step 'Validating Hyper-V Performance Layer...'
 $hypervInfo = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V /english
-$isEnabled = $hypervInfo -match "State : Enabled"
-
-if (!$isEnabled) {
+if ($hypervInfo -notmatch "State : Enabled") {
     Write-Host '    [!] Enabling Hyper-V...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
-    Write-Host '    [!] Reboot required. Run this script again after restart.' -ForegroundColor Red
+    Write-Host '    [!] Reboot required. Run script again after restart.' -ForegroundColor Red
     return
 }
 Show-Success 'Hyper-V Active.'
 
-# --- 2. Sandbox ---
-Show-Step 'Provisioning Native Sandbox...'
+# --- 2. Sandbox (Debian 13 VHDX) ---
+Show-Step 'Provisioning Debian 13 VHDX Sandbox...'
 $VMName = 'XenonVM'
-$VHDPath = "${PWD}\VM\XenonDisk.vhd"
+$VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
-if (!(Test-Path ${VHDPath})) {
-    Write-Host '    [!] Downloading Debian Cloud Image (VHD)...' -ForegroundColor Gray
-    $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-azure-amd64.tar.xz'
-    $tempTar = "${env:TEMP}\debian.tar.xz"
+if (!(Test-Path ${VHDXPath})) {
+    Write-Host '    [!] Fetching Debian 13 High-Performance Core...' -ForegroundColor Gray
+    # We use the Trixie (Debian 13) Daily Azure VHD as it's the closest to a direct VHDX
+    $sourceUrl = 'https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-azure-amd64-daily.tar.xz'
+    $tempTar = "${env:TEMP}\debian13.tar.xz"
     
     Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     
-    Write-Host '    [!] Extracting disk image...' -ForegroundColor Gray
-    # Windows 11 tar supports .tar.xz
+    Write-Host '    [!] Converting to Native VHDX...' -ForegroundColor Gray
     tar -xf ${tempTar} -C VM
-    
-    $extractedVhd = Get-ChildItem -Path VM -Filter "*.vhd" | Select-Object -First 1
-    if ($extractedVhd) {
-        Move-Item -Path $extractedVhd.FullName -Destination ${VHDPath} -Force
+    $vhdFile = Get-ChildItem -Path VM -Filter "*.vhd" | Select-Object -First 1
+    if ($vhdFile) {
+        # Convert VHD to VHDX for maximum performance and features
+        Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
     } else {
-        throw "Could not find extracted VHD in VM directory."
+        throw "Extraction failed: No VHD found in archive."
     }
     Remove-Item ${tempTar}
 }
 
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
-    Write-Host '    [!] Creating VM with Dynamic Memory...' -ForegroundColor Gray
-    New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDPath} -Generation 1 | Out-Null
-    # Note: Cloud VHDs are often Generation 1 (BIOS) compatible for Azure. 
-    # If the image supports UEFI, we use Gen 2, but Gen 1 is safer for the Azure VHD.
+    Write-Host '    [!] Creating Gen 2 Performance VM...' -ForegroundColor Gray
+    # Debian 13 Cloud images are UEFI/Gen 2 ready
+    New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDXPath} -Generation 2 | Out-Null
     Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
     Set-VMProcessor -VMName ${VMName} -Count 2
-    Show-Success "VM Created with VHD storage."
+    Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off # Required for some cloud images
+    Show-Success "Debian 13 VHDX Sandbox Ready."
 }
 
 # --- 3. Configuration ---
 $Providers = @{
-    'OpenAI' = @('gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo')
+    'OpenAI' = @('gpt-4o-mini', 'gpt-4o')
     'Anthropic' = @('claude-4.6-sonnet', 'claude-3-5-sonnet-latest')
     'Gemini' = @('gemini-3-flash-preview', 'gemini-1.5-pro')
     'DeepSeek' = @('deepseek-chat', 'deepseek-coder')
-    'Llama (Local)' = @('local-gguf')
 }
 $ProviderNames = $Providers.Keys | Sort-Object
 $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
 $SelectedModel = Get-Selection 'M O D E L' $Providers[${SelectedProvider}]
+$ApiKey = Read-Host "    Enter API Key"
 
-$ApiKey = ''
-if (${SelectedProvider} -ne 'Llama (Local)') {
-    Write-Host ''
-    $ApiKey = Read-Host "    Enter API Key for ${SelectedProvider}"
-}
-
-# --- 4. Context ---
-$Paths = @{
-    'Chrome' = "${env:LOCALAPPDATA}\Google\Chrome\User Data"
-    'Edge' = "${env:LOCALAPPDATA}\Microsoft\Edge\User Data"
-    'Brave' = "${env:LOCALAPPDATA}\BraveSoftware\Brave-Browser\User Data"
-}
-$BrowserOptions = @('None')
-foreach ($b in $Paths.Keys) { if (Test-Path $Paths[$b]) { $BrowserOptions += $b } }
-$SelectedBrowser = Get-Selection 'C O N T E X T' $BrowserOptions
-
-# --- 5. Finalize ---
+# --- 4. Build ---
 $Config = @{
     provider = ${SelectedProvider}; model = ${SelectedModel}; api_key = ${ApiKey}
-    vm_type = 'Hyper-V'; vm_name = ${VMName}; import_browser = ${SelectedBrowser}
+    vm_type = 'Hyper-V'; vm_name = ${VMName}
 }
 $Config | ConvertTo-Json | Set-Content 'config.json'
 
-Show-Step 'Building Project...'
+Show-Step 'Finalizing Build...'
 npm install --silent; npm run tauri build
 
 Show-Header
-Show-Success 'XENON DEPLOYED'
-Write-Host "    Launch via 'npm run tauri dev'."
+Show-Success 'XENON DEPLOYED (DEBIAN 13 VHDX)'
+Write-Host "    System is active."
