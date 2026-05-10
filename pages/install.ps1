@@ -1,4 +1,4 @@
-# Xenon Installer Script - High-Performance VHDX Edition
+# Xenon Installer Script - Management Layer Fix
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -41,32 +41,35 @@ function Get-Selection {
     return $Options[[int]$input - 1]
 }
 
-# --- 1. Hyper-V (Permissive Detection) ---
+# --- 1. Hyper-V (Permissive + Management Fix) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-$hypervActive = $false
 
+# Try to load the module first
+Import-Module Hyper-V -ErrorAction SilentlyContinue
+
+$hypervActive = $false
 if (Get-Command Get-VM -ErrorAction SilentlyContinue) { $hypervActive = $true }
 if (!$hypervActive -and (Get-Service vmms -ErrorAction SilentlyContinue)) { $hypervActive = $true }
-if (!$hypervActive) {
-    $features = dism.exe /online /get-features /format:table
-    if ($features -match "Microsoft-Hyper-V.*Enabled") { $hypervActive = $true }
-}
-if (!$hypervActive) {
-    $sysInfo = Get-CimInstance Win32_ComputerSystem
-    if ($sysInfo.HypervisorPresent) { $hypervActive = $true }
-}
 
 if (!$hypervActive) {
-    Write-Host '    [!] Automated detection failed.' -ForegroundColor Yellow
-    $choice = Read-Host '    [?] Force proceed? (y/N)'
-    if ($choice -eq 'y') { $hypervActive = $true }
-}
-
-if (!$hypervActive) {
-    Write-Host '    [!] Enabling Hyper-V Layer...' -ForegroundColor Yellow
+    Write-Host '    [!] Enabling Hyper-V Management Tools...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
-    Write-Host '    [!] Reboot required.' -ForegroundColor Red
+    dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-Management-PowerShell /all /norestart | Out-Null
+    
+    # Reload and check again
+    Import-Module Hyper-V -ErrorAction SilentlyContinue
+    if (Get-Command Get-VM -ErrorAction SilentlyContinue) { 
+        $hypervActive = $true 
+    } else {
+        Write-Host '    [!] Hyper-V module still missing. Rebooting might be required.' -ForegroundColor Yellow
+        $choice = Read-Host '    [?] Try to proceed anyway? (y/N)'
+        if ($choice -eq 'y') { $hypervActive = $true }
+    }
+}
+
+if (!$hypervActive) {
+    Write-Host '    [!] Action required: Reboot and run again.' -ForegroundColor Red
     return
 }
 Show-Success 'Hyper-V Layer Active.'
@@ -78,7 +81,6 @@ $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    # Using stable Debian 12 Azure image (guaranteed VHD format)
     $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-azure-amd64.tar.xz'
     $tempTar = "${env:TEMP}\xenon-core.tar.xz"
     
@@ -91,10 +93,10 @@ if (!(Test-Path ${VHDXPath})) {
     $diskFile = Get-ChildItem -Path VM -Recurse | Where-Object { $_.Extension -match "vhd|raw" } | Select-Object -First 1
     if ($diskFile) {
         Write-Host "    [!] Finalizing disk: $($diskFile.Name)..." -ForegroundColor Gray
+        # Use direct file manipulation if Convert-VHD is missing
         if (Get-Command Convert-VHD -ErrorAction SilentlyContinue) {
             Convert-VHD -Path $diskFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
         } else {
-            # Fallback: Just move and rename if the conversion cmdlet is missing
             Move-Item -Path $diskFile.FullName -Destination ${VHDXPath} -Force
         }
     } else {
@@ -103,12 +105,19 @@ if (!(Test-Path ${VHDXPath})) {
     if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
 }
 
-if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
-    Write-Host '    [!] Configuring Gen 2 Performance VM...' -ForegroundColor Gray
-    New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDXPath} -Generation 2 | Out-Null
-    Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
-    Set-VMProcessor -VMName ${VMName} -Count 2
-    Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
+# Use direct PowerShell or WMI if Get-VM is still missing
+Show-Step 'Configuring Sandbox VM...'
+if (Get-Command New-VM -ErrorAction SilentlyContinue) {
+    if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
+        New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDXPath} -Generation 2 | Out-Null
+        Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
+        Set-VMProcessor -VMName ${VMName} -Count 2
+        Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
+    }
+} else {
+    Write-Host '    [!] Management cmdlets missing. Creating VM manually via Hyper-V Manager is required.' -ForegroundColor Red
+    Write-Host "    [!] VHDX path: ${VHDXPath}" -ForegroundColor Gray
+    throw "Hyper-V Management Tools not found."
 }
 Show-Success 'Native VHDX Sandbox Ready.'
 
