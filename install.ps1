@@ -1,4 +1,4 @@
-# Xenon Installer Script - Native VHDX Performance Edition
+# Xenon Installer Script - Debian 13 High-Performance VHDX Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -61,36 +61,40 @@ if (!$hypervActive) {
 }
 Show-Success 'Hyper-V Layer Active.'
 
-# --- 2. Sandbox (Native VHDX Source) ---
-Show-Step 'Provisioning Debian 13 Native VHDX...'
+# --- 2. Sandbox (Debian 13 VHDX) ---
+Show-Step 'Provisioning Debian 13 High-Performance VHDX...'
 $VMName = 'XenonVM'
 $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    # Use Vagrant Cloud for a native, pre-built VHDX (Debian 13 / Testing)
-    $sourceUrl = 'https://vagrantcloud.com/debian/boxes/testing64/versions/13.20240507.1/providers/hyperv.box'
-    $tempBox = "${env:TEMP}\debian13.box"
+    # Using official Debian 13 (Trixie) Daily Azure image - contains VHD for Hyper-V
+    $sourceUrl = 'https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-azure-amd64-daily.tar.xz'
+    $tempTar = "${env:TEMP}\debian13.tar.xz"
     
-    if (!(Test-Path ${tempBox})) {
-        Write-Host '    [!] Fetching Native VHDX Core...' -ForegroundColor Gray
-        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempBox}
+    if (!(Test-Path ${tempTar})) {
+        Write-Host '    [!] Fetching Core Image...' -ForegroundColor Gray
+        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     }
     
-    Write-Host '    [!] Extracting Virtual Disk...' -ForegroundColor Gray
-    # .box files are tar archives containing 'box.vhdx'
-    tar -xf ${tempBox} -C VM
+    Write-Host '    [!] Finalizing VHDX...' -ForegroundColor Gray
+    # Unpack disk.vhd
+    tar -xf ${tempTar} -C VM
     
-    $vhdxFile = Get-ChildItem -Path VM -Recurse -Include "*.vhdx" | Select-Object -First 1
-    if ($vhdxFile) {
-        Move-Item -Path $vhdxFile.FullName -Destination ${VHDXPath} -Force
+    $vhdFile = Get-ChildItem -Path VM -Recurse -Include "*.vhd" | Select-Object -First 1
+    if ($vhdFile) {
+        Write-Host "    [!] Optimizing disk: $($vhdFile.Name)..." -ForegroundColor Gray
+        # Convert to VHDX for Gen 2 performance
+        Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
     } else {
-        throw "Native VHDX not found in core image."
+        $files = Get-ChildItem -Path VM -Recurse | Select-Object -ExpandProperty Name
+        throw "Failed to extract VHD. Found: $($files -join ', ')"
     }
-    if (Test-Path ${tempBox}) { Remove-Item ${tempBox} }
+    if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
 }
 
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
+    Write-Host '    [!] Creating Gen 2 Performance VM...' -ForegroundColor Gray
     New-VM -Name ${VMName} -MemoryStartupBytes 200MB -VHDPath ${VHDXPath} -Generation 2 | Out-Null
     Set-VMMemory -VMName ${VMName} -DynamicMemoryEnabled $true -MinimumBytes 200MB -MaximumBytes 4GB
     Set-VMProcessor -VMName ${VMName} -Count 2
