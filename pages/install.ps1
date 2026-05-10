@@ -1,4 +1,4 @@
-# Xenon Installer Script - Aggressive Performance Edition
+# Xenon Installer Script - Native VHDX Performance Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -42,23 +42,17 @@ function Get-Selection {
 # --- 1. Hyper-V (Aggressive Detection) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-
 $hypervActive = $false
-# Check 1: Can we run Get-VM?
 try {
     Get-VM -ErrorAction SilentlyContinue | Out-Null
     $hypervActive = $true
 } catch {
-    # Check 2: Is the management service there?
     if (Get-Service vmms -ErrorAction SilentlyContinue) { $hypervActive = $true }
 }
-
 if (!$hypervActive) {
-    # Final check: DISM
     $info = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V-All /english
     if ($info -match "State : Enabled") { $hypervActive = $true }
 }
-
 if (!$hypervActive) {
     Write-Host '    [!] Enabling Hyper-V Performance Layer...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
@@ -67,35 +61,33 @@ if (!$hypervActive) {
 }
 Show-Success 'Hyper-V Layer Active.'
 
-# --- 2. Sandbox (Resilient Extraction) ---
-Show-Step 'Provisioning Debian 13 VHDX...'
+# --- 2. Sandbox (Native VHDX Source) ---
+Show-Step 'Provisioning Debian 13 Native VHDX...'
 $VMName = 'XenonVM'
 $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    $sourceUrl = 'https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-azure-amd64-daily.tar.xz'
-    $tempTar = "${env:TEMP}\debian13.tar.xz"
+    # Use Vagrant Cloud for a native, pre-built VHDX (Debian 13 / Testing)
+    $sourceUrl = 'https://vagrantcloud.com/debian/boxes/testing64/versions/13.20240507.1/providers/hyperv.box'
+    $tempBox = "${env:TEMP}\debian13.box"
     
-    if (!(Test-Path ${tempTar})) {
-        Write-Host '    [!] Fetching Core Image (700MB+)...' -ForegroundColor Gray
-        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
+    if (!(Test-Path ${tempBox})) {
+        Write-Host '    [!] Fetching Native VHDX Core...' -ForegroundColor Gray
+        Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempBox}
     }
     
-    Write-Host '    [!] Unpacking Virtual Disk...' -ForegroundColor Gray
-    # We unpack and check for any file. Some 'tar' versions need specific flags.
-    tar -xf ${tempTar} -C VM
+    Write-Host '    [!] Extracting Virtual Disk...' -ForegroundColor Gray
+    # .box files are tar archives containing 'box.vhdx'
+    tar -xf ${tempBox} -C VM
     
-    $vhdFile = Get-ChildItem -Path VM -Recurse -Include "*.vhd" | Select-Object -First 1
-    if ($vhdFile) {
-        Write-Host "    [!] Found: $($vhdFile.Name). Optimizing to VHDX..." -ForegroundColor Gray
-        Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
+    $vhdxFile = Get-ChildItem -Path VM -Recurse -Include "*.vhdx" | Select-Object -First 1
+    if ($vhdxFile) {
+        Move-Item -Path $vhdxFile.FullName -Destination ${VHDXPath} -Force
     } else {
-        # Debug: list what was actually in the tar
-        $contents = tar -tf ${tempTar}
-        throw "Extraction failed. The archive contained: ${contents}"
+        throw "Native VHDX not found in core image."
     }
-    if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
+    if (Test-Path ${tempBox}) { Remove-Item ${tempBox} }
 }
 
 if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
@@ -104,7 +96,7 @@ if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
     Set-VMProcessor -VMName ${VMName} -Count 2
     Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
 }
-Show-Success 'Sandbox Ready.'
+Show-Success 'Debian 13 Sandbox Ready.'
 
 # --- 3. Configuration ---
 $Providers = @{
@@ -118,14 +110,14 @@ $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
 $SelectedModel = Get-Selection 'M O D E L' $Providers[${SelectedProvider}]
 $ApiKey = Read-Host "    Enter API Key for ${SelectedProvider}"
 
-# --- 4. Build ---
+# --- 4. Finalize ---
 $Config = @{
     provider = ${SelectedProvider}; model = ${SelectedModel}; api_key = ${ApiKey}
     vm_type = 'Hyper-V'; vm_name = ${VMName}
 }
 $Config | ConvertTo-Json | Set-Content 'config.json'
 
-Show-Step 'Compiling Xenon Core...'
+Show-Step 'Building Xenon...'
 npm install --silent; npm run tauri build
 
 Show-Header
