@@ -1,4 +1,4 @@
-# Xenon Installer Script - Native VHDX Direct Edition
+# Xenon Installer Script - Direct VHDX Edition (LTSC-Ready)
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -31,7 +31,8 @@ function Get-Selection {
     Show-Header
     Write-Host "    ${Prompt}:" -ForegroundColor White
     for ($i = 0; $i -lt $Options.Count; $i++) {
-        $idx = $idx = $i + 1; $opt = $Options[$i]
+        $idx = $i + 1
+        $opt = $Options[$i]
         Write-Host "      [${idx}] ${opt}" -ForegroundColor Gray
     }
     Write-Host ''
@@ -40,24 +41,47 @@ function Get-Selection {
     return $Options[[int]$input - 1]
 }
 
-# --- 1. Hyper-V (Aggressive) ---
+# --- 1. Hyper-V (Permissive Detection) ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
+
 $hypervActive = $false
-try {
-    # Check if Hyper-V cmdlets are available
-    Get-VM -ErrorAction SilentlyContinue | Out-Null
-    $hypervActive = $true
-} catch {
-    if (Get-Service vmms -ErrorAction SilentlyContinue) { $hypervActive = $true }
-}
+
+# A. Check Hyper-V Cmdlets
+if (Get-Command Get-VM -ErrorAction SilentlyContinue) { $hypervActive = $true }
+
+# B. Check Virtual Machine Management Service
+if (!$hypervActive -and (Get-Service vmms -ErrorAction SilentlyContinue)) { $hypervActive = $true }
+
+# C. Check DISM Enabled Features (Broad Search)
 if (!$hypervActive) {
-    Write-Host '    [!] Enabling Hyper-V Layer...' -ForegroundColor Yellow
+    $features = dism.exe /online /get-features /format:table
+    if ($features -match "Microsoft-Hyper-V.*Enabled") { $hypervActive = $true }
+}
+
+# D. Check Hypervisor Presence (WMI)
+if (!$hypervActive) {
+    $sysInfo = Get-CimInstance Win32_ComputerSystem
+    if ($sysInfo.HypervisorPresent) { $hypervActive = $true }
+}
+
+if (!$hypervActive) {
+    Write-Host '    [!] Automated detection failed.' -ForegroundColor Yellow
+    Write-Host '    [!] If you have already enabled Hyper-V/Virtualization, we can proceed.' -ForegroundColor Gray
+    $choice = Read-Host '    [?] Force proceed anyway? (y/N)'
+    if ($choice -eq 'y') { 
+        $hypervActive = $true 
+        Write-Host '    [+] Overriding detection...' -ForegroundColor Cyan
+    }
+}
+
+if (!$hypervActive) {
+    Write-Host '    [!] Enabling Hyper-V Layer via DISM...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
     Write-Host '    [!] Reboot required. Run script again after restart.' -ForegroundColor Red
     return
 }
-Show-Success 'Hyper-V Active.'
+Show-Success 'Hyper-V Layer Active.'
 
 # --- 2. Sandbox (Native VHDX) ---
 Show-Step 'Provisioning Native VHDX Sandbox...'
@@ -66,8 +90,8 @@ $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    # Use Vagrant Cloud direct VHDX - 100% reliable format for Hyper-V
-    $sourceUrl = 'https://vagrantcloud.com/debian/boxes/bookworm64/providers/hyperv.box'
+    # Use Vagrant Cloud direct VHDX (Debian 12 Stable)
+    $sourceUrl = 'https://vagrantcloud.com/debian/boxes/bookworm64/versions/12.20240424.1/providers/hyperv.box'
     $tempBox = "${env:TEMP}\xenon-core.box"
     
     if (!(Test-Path ${tempBox})) {
@@ -76,7 +100,6 @@ if (!(Test-Path ${VHDXPath})) {
     }
     
     Write-Host '    [!] Extracting Hardware Image...' -ForegroundColor Gray
-    # .box is a tar archive containing 'box.vhdx'
     tar -xf ${tempBox} -C VM
     
     $vhdxFile = Get-ChildItem -Path VM -Recurse -Include "*.vhdx" | Select-Object -First 1
