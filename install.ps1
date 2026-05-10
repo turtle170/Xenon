@@ -97,10 +97,10 @@ try {
 
 # --- 3. Configuration ---
 $Providers = @{
-    'OpenAI' = @('gpt-4o-mini', 'gpt-4o')
-    'Anthropic' = @('claude-4.6-sonnet', 'claude-3-5-sonnet-latest')
-    'Gemini' = @('gemini-3-flash-preview', 'gemini-1.5-pro')
-    'DeepSeek' = @('deepseek-chat', 'deepseek-coder')
+    'OpenAI' = @('gpt-5.5', 'gpt-5.4-mini', 'gpt-4o-mini', 'gpt-4o')
+    'Anthropic' = @('claude-opus-4.7', 'claude-4.6-sonnet', 'claude-3-5-sonnet-latest')
+    'Gemini' = @('gemini-pro-latest', 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-1.5-pro')
+    'DeepSeek' = @('deepseek-v4-pro', 'deepseek-v4-flash')
 }
 $ProviderNames = $Providers.Keys | Sort-Object
 $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
