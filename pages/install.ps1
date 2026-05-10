@@ -1,4 +1,4 @@
-# Xenon Installer Script - Debian 13 High-Performance VHDX Edition
+# Xenon Installer Script - Stability Core VHDX Edition
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -54,41 +54,38 @@ if (!$hypervActive) {
     if ($info -match "State : Enabled") { $hypervActive = $true }
 }
 if (!$hypervActive) {
-    Write-Host '    [!] Enabling Hyper-V Performance Layer...' -ForegroundColor Yellow
+    Write-Host '    [!] Enabling Hyper-V...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
     Write-Host '    [!] Action required: Please reboot your PC and re-run this script.' -ForegroundColor Red
     return
 }
 Show-Success 'Hyper-V Layer Active.'
 
-# --- 2. Sandbox (Debian 13 VHDX) ---
-Show-Step 'Provisioning Debian 13 High-Performance VHDX...'
+# --- 2. Sandbox (Stability Core VHDX) ---
+Show-Step 'Provisioning High-Performance VHDX...'
 $VMName = 'XenonVM'
 $VHDXPath = "${PWD}\VM\XenonDisk.vhdx"
 if (!(Test-Path 'VM')) { New-Item -ItemType Directory 'VM' | Out-Null }
 
 if (!(Test-Path ${VHDXPath})) {
-    # Using official Debian 13 (Trixie) Daily Azure image - contains VHD for Hyper-V
-    $sourceUrl = 'https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-azure-amd64-daily.tar.xz'
-    $tempTar = "${env:TEMP}\debian13.tar.xz"
+    # Using the stable Debian 12 Azure image which is guaranteed to be a VHD
+    $sourceUrl = 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-azure-amd64.tar.xz'
+    $tempTar = "${env:TEMP}\debian-stable.tar.xz"
     
     if (!(Test-Path ${tempTar})) {
-        Write-Host '    [!] Fetching Core Image...' -ForegroundColor Gray
+        Write-Host '    [!] Fetching Stability Core...' -ForegroundColor Gray
         Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     }
     
-    Write-Host '    [!] Finalizing VHDX...' -ForegroundColor Gray
-    # Unpack disk.vhd
+    Write-Host '    [!] Optimizing for Hyper-V...' -ForegroundColor Gray
     tar -xf ${tempTar} -C VM
     
     $vhdFile = Get-ChildItem -Path VM -Recurse -Include "*.vhd" | Select-Object -First 1
     if ($vhdFile) {
-        Write-Host "    [!] Optimizing disk: $($vhdFile.Name)..." -ForegroundColor Gray
         # Convert to VHDX for Gen 2 performance
         Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
     } else {
-        $files = Get-ChildItem -Path VM -Recurse | Select-Object -ExpandProperty Name
-        throw "Failed to extract VHD. Found: $($files -join ', ')"
+        throw "Reliable VHD not found in stable core image."
     }
     if (Test-Path ${tempTar}) { Remove-Item ${tempTar} }
 }
@@ -100,7 +97,7 @@ if (!(Get-VM -Name ${VMName} -ErrorAction SilentlyContinue)) {
     Set-VMProcessor -VMName ${VMName} -Count 2
     Set-VMFirmware -VMName ${VMName} -EnableSecureBoot Off
 }
-Show-Success 'Debian 13 Sandbox Ready.'
+Show-Success 'Stability Core VHDX Ready.'
 
 # --- 3. Configuration ---
 $Providers = @{
@@ -121,7 +118,7 @@ $Config = @{
 }
 $Config | ConvertTo-Json | Set-Content 'config.json'
 
-Show-Step 'Building Xenon...'
+Show-Step 'Finalizing Xenon...'
 npm install --silent; npm run tauri build
 
 Show-Header
