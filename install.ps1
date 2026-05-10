@@ -1,4 +1,4 @@
-# Xenon Installer Script - Block TUI Edition (Definitive Hyper-V Check)
+# Xenon Installer Script - Debian 13 High-Performance VHDX Edition (Extraction Fix)
 # Use: irm https://xenonai.pages.dev/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
@@ -40,23 +40,10 @@ function Get-Selection {
     return $Options[[int]${Index} - 1]
 }
 
-# --- 1. Hyper-V (Definitive Check) ---
+# --- 1. Hyper-V ---
 Show-Header
 Show-Step 'Validating Hyper-V Layer...'
-
-$hypervReady = $false
-# Check 1: VMMS Service (Definitive indicator of active Hyper-V)
-if (Get-Service vmms -ErrorAction SilentlyContinue) {
-    $hypervReady = $true
-} else {
-    # Check 2: DISM (Backup check)
-    $hypervInfo = dism.exe /online /get-featureinfo /featurename:Microsoft-Hyper-V-All /english
-    if ($hypervInfo -match "State : Enabled") {
-        $hypervReady = $true
-    }
-}
-
-if (!$hypervReady) {
+if (!(Get-Service vmms -ErrorAction SilentlyContinue)) {
     Write-Host '    [!] Enabling Hyper-V Layer...' -ForegroundColor Yellow
     dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-All /all /norestart | Out-Null
     Write-Host '    [!] Reboot required. Run script again after restart.' -ForegroundColor Red
@@ -76,13 +63,22 @@ if (!(Test-Path ${VHDXPath})) {
     $tempTar = "${env:TEMP}\debian13.tar.xz"
     Invoke-WebRequest -Uri ${sourceUrl} -OutFile ${tempTar}
     
+    if ((Get-Item ${tempTar}).Length -lt 100MB) {
+        throw "Download failed or incomplete (File too small)."
+    }
+
     Write-Host '    [!] Finalizing VHDX...' -ForegroundColor Gray
-    tar -xf ${tempTar} -C VM
-    $vhdFile = Get-ChildItem -Path VM -Filter "*.vhd" | Select-Object -First 1
+    # Force extraction and list files for debugging
+    tar -xf ${tempTar} -C VM --verbose
+    
+    $vhdFile = Get-ChildItem -Path VM -Filter "*.*" | Where-Object { $_.Extension -match "vhd" } | Select-Object -First 1
+    
     if ($vhdFile) {
+        Write-Host "    [!] Found disk: $($vhdFile.Name). Converting..." -ForegroundColor Gray
         Convert-VHD -Path $vhdFile.FullName -DestinationPath ${VHDXPath} -DeleteSource
     } else {
-        throw "Failed to extract disk image."
+        $files = Get-ChildItem -Path VM | Select-Object -ExpandProperty Name
+        throw "Failed to find VHD. Found files: $($files -join ', ')"
     }
     Remove-Item ${tempTar}
 }
@@ -107,7 +103,7 @@ $SelectedProvider = Get-Selection 'B R A I N' $ProviderNames
 $SelectedModel = Get-Selection 'M O D E L' $Providers[${SelectedProvider}]
 $ApiKey = Read-Host "    Enter API Key"
 
-# --- 4. Context ---
+# --- 4. Context Migration ---
 $Paths = @{
     'Chrome' = "${env:LOCALAPPDATA}\Google\Chrome\User Data"
     'Edge' = "${env:LOCALAPPDATA}\Microsoft\Edge\User Data"
